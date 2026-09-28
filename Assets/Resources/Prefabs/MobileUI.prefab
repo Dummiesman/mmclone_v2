@@ -1,0 +1,77 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!1 &1374007091813230460
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 6329364851394713310}
+  - component: {fileID: -7354786178749424490}
+  m_Layer: 0
+  m_Name: MobileUI
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &6329364851394713310
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1374007091813230460}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 1007.69244, y: 56.153156, z: -74.37794}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &-7354786178749424490
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1374007091813230460}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: e59d8639bdd34e549b6347c87dbd2331, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  cameraIcon: {fileID: 2800000, guid: 91a2bdad2755abb4e9d2a239e3433ef9, type: 3}
+  hornIcon: {fileID: 2800000, guid: f00f95cbcf12626418b53a9eaa0d8392, type: 3}
+  dashCamIcon: {fileID: 2800000, guid: 6b064db0f4354d24593915573e3d4138, type: 3}
+  pauseIcon: {fileID: 2800000, guid: 2629c6cd8fde49c429a65f2627eb12c6, type: 3}
+  joystickBase: {fileID: 2800000, guid: 956a46fa6de246b4da4e9501f0b97371, type: 3}
+  joystickKnob: {fileID: 2800000, guid: 6b91cc67227d59f45ae5bf1c4e198ad6, type: 3}
+  throttleTrack: {fileID: 2800000, guid: 8b42b5c8bdd463c4097c77835d158b4a, type: 3}
+  throttleFill: {fileID: 2800000, guid: 5d08d446b55511f4c87c541dd176f33f, type: 3}
+  throttleKnob: {fileID: 2800000, guid: 499e599a18251a941bf73ab95ba042e0, type: 3}
+  buttonIdleTint: {r: 1, g: 1, b: 1, a: 0.75}
+  buttonPressedTint: {r: 1, g: 1, b: 1, a: 1}
+  controlTint: {r: 1, g: 1, b: 1, a: 0.75}
+  referenceHeight: 1080
+  screenMargin: 36
+  buttonSize: 120
+  buttonSpacing: 24
+  joystickRadius: 150
+  joystickKnobSize: 130
+  throttleSliderWidth: 110
+  throttleSliderHeight: 440
+  throttleKnobHeight: 90
+  throttleRightMargin: 70
+  throttleBottomMargin: 70
+  dynamicJoystick: 1
+  throttleIsBidirectional: 1
+  throttleSpringsBack: 1
+  steerReturnSpeed: 8
+  throttleReturnSpeed: 6
+  steerDeadZone: 0.08
+  throttleDeadZone: 0.1
+  showValues: 0
