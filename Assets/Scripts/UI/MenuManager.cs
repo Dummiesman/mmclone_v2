@@ -46,7 +46,7 @@ public class MenuManager : MonoBehaviour
     }
 
     // settings
-    public int DropdownFontSize => 16;
+    public int DropdownFontSize { get; private set; }
 
     // background
     private bool drawSolidBackground = true;
@@ -397,6 +397,8 @@ public class MenuManager : MonoBehaviour
     // Init
     public void LoadInterfaceFonts()
     {
+        DropdownFontSize = 16;
+
         Font12 = FontLoader.LoadFont(Localization.GetString(LocString.Font_Main_ArialBold_12_12));
         Font14 = FontLoader.LoadFont(Localization.GetString(LocString.Font_Main_ArialBold_14_14));
         Font20 = FontLoader.LoadFont(Localization.GetString(LocString.Font_Main_ArialBold_18_18));
@@ -409,6 +411,8 @@ public class MenuManager : MonoBehaviour
 
     public void LoadInGameFonts()
     {
+        DropdownFontSize = 14;
+
         Font12 = FontLoader.LoadFont(Localization.GetString(LocString.Font_Popup_ArialBold_12_12));
         Font14 = FontLoader.LoadFont(Localization.GetString(LocString.Font_Popup_ArialBold_12_14));
         Font20 = FontLoader.LoadFont(Localization.GetString(LocString.Font_Popup_ArialBold_14_16));
