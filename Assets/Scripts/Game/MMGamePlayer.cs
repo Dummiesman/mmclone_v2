@@ -29,6 +29,7 @@ public class MMGamePlayer : MonoBehaviour
     private MMInput input;
     private MMHud hud;
     private VehicleCameraManager cameraMgr;
+    private RainAudio rainAudio;
     
     private bool inWater = false;
     private bool hitWaterHandlerCalled = false;
@@ -41,6 +42,18 @@ public class MMGamePlayer : MonoBehaviour
     private bool inTunnel = false;
     private int curRoom = -1;
     private bool firstFrame = true;
+
+    private void ApplyViewSettings()
+    {
+        var config = PlayerManager.CurrentPlayerConfig;
+        var viewConfig = config.View;
+
+        if(!Application.isMobilePlatform)
+        {
+            hud.Mirror.enabled = viewConfig.showMirror;
+        }
+        cameraMgr.SetCamIndex(viewConfig.viewModeIndex);
+    }
 
     public void Init(MMGame game, string vehicleName, int vehiclePaintjob)
     {
@@ -80,6 +93,16 @@ public class MMGamePlayer : MonoBehaviour
         if(city != null && city.AINetwork != null)
         {
             city.AINetwork.VehicleProxies.Add(new AIVehicleProxy(city.AINetwork, car));
+        }
+
+        // add rain audio if it's raining
+        if(GameState.SelectedWeather == MMWeather.Raining)
+        {
+            var rainRoot = new GameObject("Rain Audio");
+            rainRoot.transform.parent = this.transform;
+
+            rainAudio = rainRoot.AddComponent<RainAudio>();
+            rainAudio.Init();
         }
     }
 
@@ -197,6 +220,7 @@ public class MMGamePlayer : MonoBehaviour
             {
                 MMAudioMixer.EchoOff();
                 zoneMgr.SetZone(AudioZoneManager.Zone.AboveGround);
+                if (rainAudio != null) rainAudio.ShelterOff();
             }
             else
             {
@@ -205,11 +229,13 @@ public class MMGamePlayer : MonoBehaviour
                 {
                     MMAudioMixer.EchoOn();
                     zoneMgr.SetZone(AudioZoneManager.Zone.Subterranean);
+                    if (rainAudio != null) rainAudio.ShelterOn();
                 }
                 else
                 {
                     MMAudioMixer.EchoOff();
                     zoneMgr.SetZone(AudioZoneManager.Zone.AboveGround);
+                    if (rainAudio != null) rainAudio.ShelterOff();
                 }
             }
         }
@@ -303,10 +329,12 @@ public class MMGamePlayer : MonoBehaviour
         if (hud.DashboardActive)
         {
             cameraMgr.ActivateDash();
+            if (rainAudio != null) rainAudio.SetInterior(true);
         }
         else
         {
             cameraMgr.DeactivateDash();
+            if (rainAudio != null) rainAudio.SetInterior(false);
         }
         car.Model.gameObject.SetActive(!hud.DashboardActive);
     }
