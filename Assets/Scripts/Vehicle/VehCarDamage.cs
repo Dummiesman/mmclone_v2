@@ -251,12 +251,32 @@ public class VehCarDamage : VehSubsystem
         }
     }
 
+    private void UpdateWheelWobble()
+    {
+        var sim = Car.VehCarSim;
+
+        float spin = Mathf.Abs(sim.Wheels[0].RotationRate);
+        float fade = Mathf.Clamp01(2f * spin * Time.deltaTime / Mathf.PI);
+
+        float wobble = MedMaxDamagePercentage;
+        wobble *= 1f - fade; 
+
+        float a = wobble * -0.15f;
+        float b = wobble * 0.35f;
+
+        sim.Wheels[0].WobbleAmount = a;
+        sim.Wheels[1].WobbleAmount = b;
+        sim.Wheels[2].WobbleAmount = b;
+        sim.Wheels[3].WobbleAmount = a;
+    }
+
     public override void Update()
     {
         shards.Materials = Car.Model.BodyMaterials;
 
         UpdateRegeneration();
         UpdateSmoke();
+        UpdateWheelWobble();
 
         //damaged out?
         if (isDamagedOut && EnableRepair)
