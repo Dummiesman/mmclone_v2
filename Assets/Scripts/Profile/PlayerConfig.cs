@@ -51,14 +51,14 @@ public struct PlayerAudioConfig
         writer.Write(audioChannels);
 
         writer.Write(soundDeviceName.Length + 1);
-        writer.WriteAGEString(soundDeviceName);
+        writer.WriteNullTerminatedString(soundDeviceName);
     }
 }
 
 public struct PlayerGfxConfig
 {
     public int textureQuality;          // 0x00
-    public int objectDetail;            // 0x04
+    public MMObjectDetail objectDetail; // 0x04
     public bool enableReflections;      // 0x0c
     public int cloudShadowQuality;      // 0x10
     public bool enableSky;              // 0x14
@@ -91,7 +91,7 @@ public struct PlayerGfxConfig
     public void Load(BinaryReader reader)
     {
         textureQuality = reader.ReadInt32();
-        objectDetail = reader.ReadInt32();
+        objectDetail = (MMObjectDetail)reader.ReadInt32();
         int gfx_0x08 = reader.ReadInt32();                  // unknown, discarded
         enableReflections = (reader.ReadInt32() != 0);
         cloudShadowQuality = reader.ReadInt32();
@@ -109,7 +109,7 @@ public struct PlayerGfxConfig
     public void Save(BinaryWriter writer)
     {
         writer.Write(textureQuality);
-        writer.Write(objectDetail);
+        writer.Write((int)objectDetail);
         writer.Write(0); // gfx_0x08
         writer.Write(enableReflections ? 1 : 0);
         writer.Write(cloudShadowQuality);
@@ -321,7 +321,8 @@ public class PlayerConfig
 
     public void SetGraphics()
     {
-        
+        GameState.ViewDistance = Gfx.farClip;
+        GameState.ObjectDetail = Gfx.objectDetail;
     }
 
     public void SetVehicle()
@@ -331,7 +332,7 @@ public class PlayerConfig
     // Loading
     public bool Load(Stream stream)
     {
-        using (var reader = new BinaryReader(stream, Encoding.Default, true))
+        using (var reader = new BinaryReader(stream, Encoding.ASCII, true))
         {
             int identifier = reader.ReadInt32();
             if (identifier != IDENTIFIER)
@@ -366,7 +367,7 @@ public class PlayerConfig
 
     public void Save(Stream stream)
     {
-        using (var writer = new BinaryWriter(stream, Encoding.Default, true))
+        using (var writer = new BinaryWriter(stream, Encoding.ASCII, true))
         {
             writer.Write(IDENTIFIER);
             writer.Write(VERSION);

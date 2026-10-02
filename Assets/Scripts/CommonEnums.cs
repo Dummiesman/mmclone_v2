@@ -20,6 +20,13 @@ public enum MMSoundQuality
     High
 }
 
+public enum MMObjectDetail
+{
+    Low,
+    Medium,
+    High,
+    VeryHigh
+}
 
 public enum MMControllerType
 {
