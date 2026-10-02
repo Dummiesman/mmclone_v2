@@ -23,9 +23,12 @@ public class PopupOptions : PopupMenuBase
         {
             if (MenuManager.Instance != null) MenuManager.Instance.SwitchTo(MenuID.PopupAudio);
         };
+        graphicsBtn.OnClick = () =>
+        {
+            if (MenuManager.Instance != null) MenuManager.Instance.SwitchTo(MenuID.PopupGraphics);
+        };
 
         controlsBtn.Enabled = false; // enable once we have the options menu ready
-        graphicsBtn.Enabled = false; // enable once we have the options menu ready
 
         // add resume button
         AddPreviousButton(MenuID.PopupMain);

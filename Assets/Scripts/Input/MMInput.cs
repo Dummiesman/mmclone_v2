@@ -193,6 +193,7 @@ public class MMInput : MonoBehaviour
         float accel = MobileInputUI.Accelerator;
         float brake = MobileInputUI.Brake;
         float steer = MobileInputUI.Steering;
+        bool handbrake = MobileInputUI.Handbrake > 0.5f;
 
         if (FilterMobileSteering)
         {
@@ -209,7 +210,7 @@ public class MMInput : MonoBehaviour
             steer,
             accel,
             brake,
-            false);
+            handbrake);
     }
 
     private void UpdateDrivingInputs()

@@ -15,11 +15,14 @@ public class OptionsMenu : UIMenu
         var gfxOptions = AddBMButton("opt_gfx", 0.078125f, 0.8f, 4);
 
         // not implemneted yet
-        audOptions.Enabled = false;
         ctrlOptions.Enabled = false;
         gfxOptions.Enabled = false;
 
         // setup events
+        audOptions.OnClick += () =>
+        {
+            if (MenuManager.Instance != null) MenuManager.Instance.SwitchTo(MenuID.AudioOptions);
+        };
         aboutButton.OnClick += () =>
         {
             if (MenuManager.Instance != null) MenuManager.Instance.SwitchTo(MenuID.About);

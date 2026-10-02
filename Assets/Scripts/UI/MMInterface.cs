@@ -19,6 +19,7 @@ public class MMInterface : MonoBehaviour
     private VehicleShowcase vehicleShowcase;
     private RaceMenu racesMenu;
     private OptionsMenu optionsMenu;
+    private AudioOptions audioOptions;
     private AboutMenu aboutMenu;
 
     // dialogs
@@ -105,6 +106,7 @@ public class MMInterface : MonoBehaviour
     {
         data.SetState();
         config.SetAudio();
+        config.SetGraphics();
 
         MMAudioMixer.Volume = GameState.AudioVolume;
         MMAudioMixer.MusicVolume = GameState.MusicVolme;
@@ -159,6 +161,7 @@ public class MMInterface : MonoBehaviour
         vehicleShowcase = new VehicleShowcase();
         racesMenu = new RaceMenu();
         optionsMenu = new OptionsMenu();
+        audioOptions = new AudioOptions();
         aboutMenu = new AboutMenu();
 
         quitDialog = new DialogQuit();

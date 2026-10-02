@@ -31,7 +31,8 @@ public class GameState
     public static MMTransmissionType TransmissionType = MMTransmissionType.Auto;
 
     // GFX
-    public float ViewDistance = 1000.0f;
+    public static float ViewDistance = 1000.0f;
+    public static MMObjectDetail ObjectDetail = MMObjectDetail.VeryHigh;
 
     // INPUT
     public static MMControllerType ControllerType = MMControllerType.Keyboard;

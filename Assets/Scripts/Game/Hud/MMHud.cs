@@ -165,7 +165,7 @@ public class MMHud : MonoBehaviour
         InitMenus(game);
 
         // init mobile ui
-        if(Application.isMobilePlatform)
+        if(Application.isMobilePlatform || Application.isEditor)
         {
             GameObject prefab = Resources.Load<GameObject>("Prefabs/MobileUI");
             var instantiated = Instantiate(prefab);

@@ -141,7 +141,7 @@ PlayerSettings:
   loadStoreDebugModeEnabled: 0
   visionOSBundleVersion: 1.0
   tvOSBundleVersion: 1.0
-  bundleVersion: a11
+  bundleVersion: a13
   preloadedAssets: []
   metroInputSource: 0
   wsaTransparentSwapchain: 0
@@ -165,6 +165,7 @@ PlayerSettings:
   applicationIdentifier:
     Android: com.Dummiesman.MidtownMadness2
     Standalone: com.Dummiesman.Midtown-Madness-2
+    iPhone: com.Dummiesman.Midtown-Madness-2
   buildNumber:
     Standalone: 0
     VisionOS: 0
