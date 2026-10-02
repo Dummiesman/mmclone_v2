@@ -166,11 +166,11 @@ public class MMGame : MonoBehaviour
             new LoadStep("InitAI",           () => city.InitAI()),
             new LoadStep("InitCulling",      () => city.InitCulling()),
             
-            new LoadStep("InitWeather",      InitWeather),
             new LoadStep("PostCity",         PostCitySetup),
             new LoadStep("InitSpeech",       InitSpeech),
             new LoadStep("InitPlayer",       InitPlayer),
             new LoadStep("InitGameObjects",  InitGameObjects),
+            new LoadStep("InitWeather",      InitWeather),
             new LoadStep("InitAudio",        InitAudio),
             new LoadStep("Reset",            Reset),
         };
