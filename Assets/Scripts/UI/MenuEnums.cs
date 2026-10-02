@@ -4,12 +4,14 @@ public enum MenuID
     PopupMain = 1,
     Main = 1,
     Options = 2,
+    AudioOptions = 3,
     PopupOptions = 5,
     PopupAudio = 6,
     RaceMenu = 7,
     VehicleSelect = 8,
+    PopupGraphics = 8, // Popup ID
     VehicleShowcase = 9,
-    Results = 9, // this is a duplicate in the original too
+    Results = 9, // Popup ID
     NewPlayerDialog = 17,
     LockedVehicleDialog = 23,
     Quit = 27,
