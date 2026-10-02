@@ -41,7 +41,7 @@ public class BMButton : UIWidget
         {
             texture.Destroy();
         }
-        texture = TextureLoader.Load(name);
+        texture = TextureLoader.LoadNoPostprocess(name);
         if (texture != null)
         {
             texture.Texture.wrapMode = TextureWrapMode.Clamp;

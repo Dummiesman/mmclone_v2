@@ -14,7 +14,7 @@ public class UISlider : UIWidget
         set
         {
             min = value;
-            Value = Mathf.Clamp(Value, min, max);
+            if(Value < min) Value = Mathf.Clamp(Value, min, max);
         }
     }
     public float Max
@@ -23,7 +23,7 @@ public class UISlider : UIWidget
         set
         {
             max = value;
-            Value = Mathf.Clamp(Value, min, max);
+            if(Value > max) Value = Mathf.Clamp(Value, min, max);
         }
     }
 
@@ -128,10 +128,10 @@ public class UISlider : UIWidget
 
     private void LoadTextures()
     {
-        sliderReadOnlyActiveTexture = TextureLoader.Load("slider_roactl");
-        sliderReadOnlyInactiveTexture = TextureLoader.Load("slider_roinactl");
-        sliderActiveTexture = TextureLoader.Load("slider_actl");
-        sliderInactiveTexture = TextureLoader.Load("slider_inactl");
+        sliderReadOnlyActiveTexture = TextureLoader.LoadNoPostprocess("slider_roactl");
+        sliderReadOnlyInactiveTexture = TextureLoader.LoadNoPostprocess("slider_roinactl");
+        sliderActiveTexture = TextureLoader.LoadNoPostprocess("slider_actl");
+        sliderInactiveTexture = TextureLoader.LoadNoPostprocess("slider_inactl");
     }
 
     // Events
