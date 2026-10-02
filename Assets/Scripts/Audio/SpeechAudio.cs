@@ -145,7 +145,7 @@ public class SpeechAudio : MonoBehaviour
             speechSource.Stop();
 
         // Play.
-        speechSource.PlayOneShot(spchCat.clips[index].Clip);
+        speechSource.PlayOneShot(spchCat.clips[index].Clip, GameState.AudioVolume);
     }
 
     public void PlayResults(int finishPosition, int numOpponents)
