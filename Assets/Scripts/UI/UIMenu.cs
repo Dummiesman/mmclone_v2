@@ -667,6 +667,17 @@ public class UIMenu : IDisposable
         return AddTextButton(name, x, y, w, h, text, TextNodeEffect.None, font);
     }
 
+    public TextButton AddTextButton(string name, float x, float y, float w, float h, string text, TextNodeEffect effects, int fontSize)
+    {
+        var font = MenuManager.Instance.GetFont(fontSize);
+        return AddTextButton(name, x, y, w, h, text, effects, font);
+    }
+
+    public TextButton AddTextButton(string name, float x, float y, float w, float h, string text, int fontSize)
+    {
+        return AddTextButton(name, x, y, w, h, text, TextNodeEffect.None, fontSize);
+    }
+
     public UITextField AddTextField(string name, float x, float y, float width, float height, int maxLength = int.MaxValue)
     {
         int widgetId = widgets.Count;
