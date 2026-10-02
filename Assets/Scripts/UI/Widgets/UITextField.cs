@@ -38,16 +38,40 @@ public class UITextField : UIWidget
 
     private bool editing = false;
 
+    private TouchScreenKeyboard keyboard;
+    private TouchScreenKeyboardType keyboardType = TouchScreenKeyboardType.Default;
+    private static bool UseTouchKeyboard =>
+    Application.isMobilePlatform && TouchScreenKeyboard.isSupported;
+
     public override void Focus()
     {
         base.Focus();
         editing = true;
+
+        if (UseTouchKeyboard && keyboard == null)
+        {
+            keyboard = TouchScreenKeyboard.Open(
+                text,
+                keyboardType,
+                autocorrection: false,
+                multiline: false,
+                secure: false,
+                alert: false,
+                textPlaceholder: string.Empty,
+                characterLimit: maxLength == int.MaxValue ? 0 : maxLength); // 0 == unlimited
+        }
     }
 
     public override void Unfocus()
     {
         base.Unfocus();
         editing = false;
+
+        if (keyboard != null)
+        {
+            keyboard.active = false;
+            keyboard = null;
+        }
     }
 
     public override bool HandleInput(UIEvent input)
@@ -92,6 +116,29 @@ public class UITextField : UIWidget
         UIDrawing.ScaledLabel(textLocation, Text, font, Menu.RenderScale);
 
         GUI.color = oldColor;
+    }
+    
+    public override void Update()
+    {
+        base.Update();
+
+        var incoming = keyboard.text ?? string.Empty;
+        if (maxLength != int.MaxValue && incoming.Length > maxLength)
+        {
+            incoming = incoming.Substring(0, maxLength);
+            keyboard.text = incoming;
+        }
+
+        if (incoming != text) Text = incoming;
+
+        switch (keyboard.status)
+        {
+            case TouchScreenKeyboard.Status.Done:
+            case TouchScreenKeyboard.Status.Canceled:
+            case TouchScreenKeyboard.Status.LostFocus:
+                Unfocus();
+                break;
+        }
     }
 
     public override void Dispose()
