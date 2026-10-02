@@ -10,27 +10,17 @@ public class CityFog
 
     private float lastViewDistance = 1000f;
 
-    private const float FOG_SCALE = 1f;
-
-    private float CalcFogStart(float scale)
-    {
-        if (scale >= 1f)
-            return fogStart * scale;
-
-        return fogStart * scale * Mathf.Clamp(scale, 0.5f, 1f);
-    }
-
     private void Apply()
     {
-        float fogScale = lastViewDistance / 1000f;
-
-        float startScaled = CalcFogStart(fogScale);
-        float endScaled = fogEnd * fogScale;
+        const float FogStartMargin = 30f;
+        float farClip = lastViewDistance;
+        float start = Mathf.Min(farClip - FogStartMargin, fogStart);
+        float end = Mathf.Min(farClip, fogEnd);
 
         RenderSettings.fogMode = FogMode.Linear;
-        RenderSettings.fogStartDistance = startScaled;
-        RenderSettings.fogEndDistance = endScaled;
-        RenderSettings.fog = startScaled < lastViewDistance || endScaled < lastViewDistance;
+        RenderSettings.fogStartDistance = start;
+        RenderSettings.fogEndDistance = end;
+        RenderSettings.fog = true;
         RenderSettings.fogColor = color;
 
         var mainVp = ViewportManager.MainViewport;
