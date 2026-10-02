@@ -47,12 +47,14 @@ MonoBehaviour:
   cameraIcon: {fileID: 2800000, guid: 91a2bdad2755abb4e9d2a239e3433ef9, type: 3}
   hornIcon: {fileID: 2800000, guid: f00f95cbcf12626418b53a9eaa0d8392, type: 3}
   dashCamIcon: {fileID: 2800000, guid: 6b064db0f4354d24593915573e3d4138, type: 3}
+  mapIcon: {fileID: 2800000, guid: 8483ec67e359a124088811753ff2a541, type: 3}
+  mirrorIcon: {fileID: 2800000, guid: 591029b0f0e6cc1469c55fdf2dd06fa5, type: 3}
   pauseIcon: {fileID: 2800000, guid: 2629c6cd8fde49c429a65f2627eb12c6, type: 3}
   joystickBase: {fileID: 2800000, guid: 956a46fa6de246b4da4e9501f0b97371, type: 3}
   joystickKnob: {fileID: 2800000, guid: 6b91cc67227d59f45ae5bf1c4e198ad6, type: 3}
-  throttleTrack: {fileID: 2800000, guid: 8b42b5c8bdd463c4097c77835d158b4a, type: 3}
-  throttleFill: {fileID: 2800000, guid: 5d08d446b55511f4c87c541dd176f33f, type: 3}
-  throttleKnob: {fileID: 2800000, guid: 499e599a18251a941bf73ab95ba042e0, type: 3}
+  handbrakeIcon: {fileID: 2800000, guid: 1eb55c180b9b9414f81227fc6a1833a1, type: 3}
+  brakePedalIcon: {fileID: 2800000, guid: 490a8f2e0bcc6464aba07d4f6c64f8dc, type: 3}
+  acceleratorPedalIcon: {fileID: 2800000, guid: b2d159f4aa127fb4f816325cd662b758, type: 3}
   buttonIdleTint: {r: 1, g: 1, b: 1, a: 0.75}
   buttonPressedTint: {r: 1, g: 1, b: 1, a: 1}
   controlTint: {r: 1, g: 1, b: 1, a: 0.75}
@@ -62,16 +64,19 @@ MonoBehaviour:
   buttonSpacing: 24
   joystickRadius: 150
   joystickKnobSize: 130
-  throttleSliderWidth: 110
-  throttleSliderHeight: 440
-  throttleKnobHeight: 90
-  throttleRightMargin: 70
-  throttleBottomMargin: 70
+  pedalWidth: 190
+  pedalHeight: 420
+  pedalSpacing: 26
+  handbrakeHeight: 110
+  handbrakeSpacing: 26
+  pedalsRightMargin: 60
+  pedalsBottomMargin: 60
+  pedalTouchPadding: 22
   dynamicJoystick: 1
-  throttleIsBidirectional: 1
-  throttleSpringsBack: 1
   steerReturnSpeed: 8
-  throttleReturnSpeed: 6
   steerDeadZone: 0.08
-  throttleDeadZone: 0.1
+  analogPedalTravel: 0
+  pedalPressSpeed: 6
+  pedalReleaseSpeed: 8
+  slideBetweenControls: 1
   showValues: 0

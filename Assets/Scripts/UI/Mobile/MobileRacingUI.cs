@@ -2,6 +2,46 @@ using System;
 using System.Collections.Generic;
 using UnityEngine;
 
+/// <summary>
+/// Image-based OnGUI touch HUD for a mobile racing game.
+///
+/// Layout:
+///   Top left     : camera button, horn button, dash cam toggle (steering wheel)
+///   Top right    : map toggle, mirror toggle, pause button
+///   Bottom left  : analog steering joystick (drag anywhere in the bottom-left quarter)
+///   Bottom right : horizontal handbrake lever, with brake pedal (left) and accelerator (right) below
+///
+/// Exposed input values:
+///   Steering       -1 (full left) .. +1 (full right)
+///   Accelerator     0..1
+///   Brake           0..1
+///   Throttle       Accelerator - Brake, -1..1 convenience value
+///   Handbrake       0..1 (HandbrakeHeld for the raw bool)
+///   HornHeld        true while the horn button is held
+///   DashCamOn / MapOn / MirrorOn   latched toggle states
+///
+/// Events: CameraPressed, PausePressed, HornDown, HornUp,
+///         DashCamToggled(bool), MapToggled(bool), MirrorToggled(bool),
+///         HandbrakeDown, HandbrakeUp.
+///
+/// Example car script:
+///   public MobileRacingUI hud;
+///   void FixedUpdate() {
+///       transform.Rotate(0f, hud.Steering * turnSpeed * Time.fixedDeltaTime, 0f);
+///       rb.AddForce(transform.forward * hud.Accelerator * power);
+///       ApplyBrakes(hud.Brake, hud.Handbrake);
+///   }
+///
+/// Notes:
+///   - Uses the legacy Input Manager (Project Settings > Player > Active Input Handling
+///     must be "Input Manager (Old)" or "Both").
+///   - Multi-touch aware: steering, both pedals, the handbrake and the buttons can all be
+///     used at once. Brake and accelerator are independent, so left-foot braking works.
+///   - With slideBetweenControls on, one finger can drag across the handbrake, brake and
+///     accelerator and engage each in turn without lifting. The steering thumb and the
+///     top-row buttons never hand off, so a steering drag can't reach the pedals.
+///   - Textures are optional; missing ones draw as a labelled grey placeholder.
+/// </summary>
 [DisallowMultipleComponent]
 public class MobileRacingUI : MonoBehaviour
 {
@@ -12,22 +52,24 @@ public class MobileRacingUI : MonoBehaviour
     public Texture hornIcon;
     public Texture dashCamIcon;
 
-    [Header("Top-right button")]
+    [Header("Top-right buttons")]
+    public Texture mapIcon;
+    public Texture mirrorIcon;
     public Texture pauseIcon;
 
     [Header("Steering joystick")]
     public Texture joystickBase;
     public Texture joystickKnob;
 
-    [Header("Throttle slider")]
-    public Texture throttleTrack;
-    public Texture throttleFill;
-    public Texture throttleKnob;
+    [Header("Bottom-right controls")]
+    public Texture handbrakeIcon;
+    public Texture brakePedalIcon;
+    public Texture acceleratorPedalIcon;
 
     [Header("Tints (one asset per control, state shown by alpha)")]
     public Color buttonIdleTint = new Color(1f, 1f, 1f, 0.75f);
     public Color buttonPressedTint = new Color(1f, 1f, 1f, 1f);
-    [Tooltip("Joystick and throttle are drawn at this tint at all times.")]
+    [Tooltip("Joystick is drawn at this tint at all times.")]
     public Color controlTint = new Color(1f, 1f, 1f, 0.75f);
 
     // ------------------------------------------------------------------ layout
@@ -37,27 +79,39 @@ public class MobileRacingUI : MonoBehaviour
     public float screenMargin = 36f;
     public float buttonSize = 120f;
     public float buttonSpacing = 24f;
+
+    [Header("Joystick layout")]
     public float joystickRadius = 150f;
     public float joystickKnobSize = 130f;
-    public float throttleSliderWidth = 110f;
-    public float throttleSliderHeight = 440f;
-    public float throttleKnobHeight = 90f;
-    public float throttleRightMargin = 70f;
-    public float throttleBottomMargin = 70f;
+
+    [Header("Pedal / handbrake layout")]
+    public float pedalWidth = 190f;
+    public float pedalHeight = 420f;
+    public float pedalSpacing = 26f;
+    public float handbrakeHeight = 110f;
+    public float handbrakeSpacing = 26f;
+    public float pedalsRightMargin = 60f;
+    public float pedalsBottomMargin = 60f;
+    [Tooltip("Extra invisible touch margin around the pedals and handbrake.")]
+    public float pedalTouchPadding = 22f;
 
     // --------------------------------------------------------------- behaviour
 
-    [Header("Behaviour")]
+    [Header("Steering behaviour")]
     [Tooltip("The joystick re-centres under the finger that touches the bottom-left quarter.")]
     public bool dynamicJoystick = true;
-    [Tooltip("Slider centre = coast, up = gas, down = brake/reverse. Off means 0..1 gas only.")]
-    public bool throttleIsBidirectional = true;
-    [Tooltip("Throttle springs back to its rest value when released.")]
-    public bool throttleSpringsBack = true;
     public float steerReturnSpeed = 8f;
-    public float throttleReturnSpeed = 6f;
     [Range(0f, 0.5f)] public float steerDeadZone = 0.08f;
-    [Range(0f, 0.5f)] public float throttleDeadZone = 0.1f;
+
+    [Header("Pedal behaviour")]
+    [Tooltip("Pedal travel follows how far up the pad the finger sits, instead of always going to full.")]
+    public bool analogPedalTravel = false;
+    [Tooltip("How fast a pedal presses in, in units per second (1 = one second to full).")]
+    public float pedalPressSpeed = 6f;
+    [Tooltip("How fast a pedal releases, in units per second.")]
+    public float pedalReleaseSpeed = 8f;
+    [Tooltip("A finger can slide between the handbrake, brake and accelerator and engage each in turn without lifting.")]
+    public bool slideBetweenControls = true;
 
     [Header("Debug")]
     public bool showValues = false;
@@ -67,28 +121,41 @@ public class MobileRacingUI : MonoBehaviour
     /// <summary>-1 = full left, 0 = centred, +1 = full right.</summary>
     public float Steering { get; private set; }
 
-    /// <summary>-1 = full brake/reverse, 0 = coast, +1 = full gas (0..1 when not bidirectional).</summary>
-    public float Throttle { get; private set; }
+    /// <summary>Accelerator pedal travel, 0..1.</summary>
+    public float Accelerator { get; private set; }
 
-    /// <summary>Positive half of <see cref="Throttle"/>, 0..1.</summary>
-    public float Accelerator { get { return Mathf.Clamp01(Throttle); } }
+    /// <summary>Brake pedal travel, 0..1.</summary>
+    public float Brake { get; private set; }
 
-    /// <summary>Negative half of <see cref="Throttle"/>, 0..1.</summary>
-    public float Brake { get { return Mathf.Clamp01(-Throttle); } }
+    /// <summary>Convenience combination: Accelerator - Brake, -1..1.</summary>
+    public float Throttle { get { return Accelerator - Brake; } }
 
+    /// <summary>Handbrake as a 0..1 value.</summary>
+    public float Handbrake { get { return HandbrakeHeld ? 1f : 0f; } }
+
+    public bool HandbrakeHeld { get; private set; }
     public bool HornHeld { get; private set; }
 
-    /// <summary>Latched state of the steering-wheel button (dash cam on/off).</summary>
+    /// <summary>Latched state of the steering-wheel button.</summary>
     public bool DashCamOn { get; private set; }
 
+    /// <summary>Latched state of the map button.</summary>
+    public bool MapOn { get; private set; }
+
+    /// <summary>Latched state of the mirror button.</summary>
+    public bool MirrorOn { get; private set; }
+
     public bool SteeringActive { get { return steerId != NoId; } }
-    public bool ThrottleActive { get { return throttleId != NoId; } }
 
     public event Action CameraPressed;
     public event Action PausePressed;
     public event Action HornDown;
     public event Action HornUp;
+    public event Action HandbrakeDown;
+    public event Action HandbrakeUp;
+    public event Action MapPressed;
     public event Action<bool> DashCamToggled;
+    public event Action<bool> MirrorToggled;
 
     // ----------------------------------------------------------------- pointers
 
@@ -108,22 +175,30 @@ public class MobileRacingUI : MonoBehaviour
     private int cameraId = NoId;
     private int hornId = NoId;
     private int dashCamId = NoId;
+    private int mapId = NoId;
+    private int mirrorId = NoId;
     private int pauseId = NoId;
     private int steerId = NoId;
-    private int throttleId = NoId;
+    private int handbrakeId = NoId;
+    private int brakeId = NoId;
+    private int accelId = NoId;
 
     // ------------------------------------------------------------------- state
 
     private float scale = 1f;
     private int lastWidth, lastHeight;
 
-    private Rect cameraRect, hornRect, dashCamRect, pauseRect;
-    private Rect steerArea, throttleArea;
-    private Rect throttleRect;
+    private Rect cameraRect, hornRect, dashCamRect;
+    private Rect mapRect, mirrorRect, pauseRect;
+    private Rect steerArea;
+    private Rect handbrakeRect, brakeRect, accelRect;
+    private Rect handbrakeHit, brakeHit, accelHit;
 
     private Vector2 joystickHome;
     private Vector2 joystickCentre;
     private Vector2 knobOffset;
+
+    private float brakeTarget, accelTarget;
 
     private Texture2D placeholderTex;
     private GUIStyle placeholderStyle;
@@ -158,7 +233,7 @@ public class MobileRacingUI : MonoBehaviour
         ClaimNewPointers();
         UpdateButtons();
         UpdateSteering();
-        UpdateThrottle();
+        UpdatePedals();
     }
 
     private void OnGUI()
@@ -168,18 +243,24 @@ public class MobileRacingUI : MonoBehaviour
         GUI.depth = -100;
 
         DrawJoystick();
-        DrawThrottle();
+
+        DrawImage(handbrakeRect, handbrakeIcon, TintFor(HandbrakeHeld), "HANDBRAKE");
+        DrawImage(brakeRect, brakePedalIcon, TintFor(Brake), "BRAKE");
+        DrawImage(accelRect, acceleratorPedalIcon, TintFor(Accelerator), "GAS");
 
         DrawImage(cameraRect, cameraIcon, TintFor(cameraId != NoId), "CAM");
         DrawImage(hornRect, hornIcon, TintFor(HornHeld), "HORN");
         DrawImage(dashCamRect, dashCamIcon, TintFor(DashCamOn || dashCamId != NoId), "DASH");
+
+        DrawImage(mapRect, mapIcon, TintFor(MapOn || mapId != NoId), "MAP");
+        DrawImage(mirrorRect, mirrorIcon, TintFor(MirrorOn || mirrorId != NoId), "MIRROR");
         DrawImage(pauseRect, pauseIcon, TintFor(pauseId != NoId), "II");
 
         if (showValues)
         {
-            Rect r = new Rect(cameraRect.x, hornRect.yMax + 10f * scale, 420f * scale, 60f * scale);
-            GUI.Label(r, string.Format("Steering {0:+0.00;-0.00; 0.00}   Throttle {1:+0.00;-0.00; 0.00}",
-                                       Steering, Throttle), ValueStyle);
+            Rect r = new Rect(cameraRect.x, dashCamRect.yMax + 10f * scale, 640f * scale, 120f * scale);
+            GUI.Label(r, string.Format("Steer {0:+0.00;-0.00; 0.00}   Gas {1:0.00}   Brake {2:0.00}   HB {3}",
+                                       Steering, Accelerator, Brake, HandbrakeHeld ? "ON" : "off"), ValueStyle);
         }
     }
 
@@ -199,27 +280,50 @@ public class MobileRacingUI : MonoBehaviour
         float b = buttonSize * scale;
         float gap = buttonSpacing * scale;
 
+        // Top-left row, left to right.
         cameraRect = new Rect(safe.x + m, safe.y + m, b, b);
         hornRect = new Rect(cameraRect.xMax + gap, cameraRect.y, b, b);
         dashCamRect = new Rect(hornRect.xMax + gap, cameraRect.y, b, b);
+
+        // Top-right row, laid out from the right edge inwards.
         pauseRect = new Rect(safe.xMax - m - b, safe.y + m, b, b);
+        mirrorRect = new Rect(pauseRect.x - gap - b, pauseRect.y, b, b);
+        mapRect = new Rect(mirrorRect.x - gap - b, pauseRect.y, b, b);
 
+        // Steering.
         steerArea = new Rect(0f, Screen.height * 0.5f, Screen.width * 0.5f, Screen.height * 0.5f);
-        throttleArea = new Rect(Screen.width * 0.5f, Screen.height * 0.5f, Screen.width * 0.5f, Screen.height * 0.5f);
-
         float radius = joystickRadius * scale;
         joystickHome = new Vector2(safe.x + m + radius, safe.yMax - m - radius);
 
-        float tw = throttleSliderWidth * scale;
-        float th = throttleSliderHeight * scale;
-        throttleRect = new Rect(safe.xMax - throttleRightMargin * scale - tw,
-                                safe.yMax - throttleBottomMargin * scale - th,
-                                tw, th);
+        // Bottom-right cluster: accelerator hugs the edge, brake sits to its left,
+        // handbrake spans both of them above.
+        float pw = pedalWidth * scale;
+        float ph = pedalHeight * scale;
+        float pgap = pedalSpacing * scale;
+        float hbH = handbrakeHeight * scale;
+        float hbGap = handbrakeSpacing * scale;
+
+        float right = safe.xMax - pedalsRightMargin * scale;
+        float bottom = safe.yMax - pedalsBottomMargin * scale;
+
+        accelRect = new Rect(right - pw, bottom - ph, pw, ph);
+        brakeRect = new Rect(accelRect.x - pgap - pw, accelRect.y, pw, ph);
+        handbrakeRect = new Rect(brakeRect.x, brakeRect.y - hbGap - hbH, pw * 2f + pgap, hbH);
+
+        float pad = pedalTouchPadding * scale;
+        accelHit = Inflate(accelRect, pad);
+        brakeHit = Inflate(brakeRect, pad);
+        handbrakeHit = Inflate(handbrakeRect, pad);
 
         placeholderStyle = null;
         valueStyle = null;
 
         if (steerId == NoId) joystickCentre = joystickHome;
+    }
+
+    private static Rect Inflate(Rect r, float pad)
+    {
+        return new Rect(r.x - pad, r.y - pad, r.width + pad * 2f, r.height + pad * 2f);
     }
 
     // ----------------------------------------------------------------- pointers
@@ -272,43 +376,146 @@ public class MobileRacingUI : MonoBehaviour
     private bool IsClaimed(int id)
     {
         return id == cameraId || id == hornId || id == dashCamId
-            || id == pauseId || id == steerId || id == throttleId;
+            || id == mapId || id == mirrorId || id == pauseId
+            || id == steerId || id == handbrakeId || id == brakeId || id == accelId;
     }
+
+    private enum DriveControl { None, Handbrake, Brake, Accelerator }
 
     private void ClaimNewPointers()
     {
         for (int i = 0; i < pointers.Count; i++)
         {
             Pointer p = pointers[i];
-            if (!p.began || p.ended || IsClaimed(p.id)) continue;
+            if (p.ended) continue;
 
-            if (cameraId == NoId && cameraRect.Contains(p.pos))
+            if (IsClaimed(p.id))
             {
-                cameraId = p.id;
+                if (slideBetweenControls) TrySlide(p);
+                continue;
             }
-            else if (hornId == NoId && hornRect.Contains(p.pos))
+
+            if (p.began)
             {
-                hornId = p.id;
-                SetHorn(true);
+                if (cameraId == NoId && cameraRect.Contains(p.pos)) { cameraId = p.id; continue; }
+                if (hornId == NoId && hornRect.Contains(p.pos)) { hornId = p.id; SetHorn(true); continue; }
+                if (dashCamId == NoId && dashCamRect.Contains(p.pos)) { dashCamId = p.id; continue; }
+                if (mapId == NoId && mapRect.Contains(p.pos)) { mapId = p.id; continue; }
+                if (mirrorId == NoId && mirrorRect.Contains(p.pos)) { mirrorId = p.id; continue; }
+                if (pauseId == NoId && pauseRect.Contains(p.pos)) { pauseId = p.id; continue; }
+
+                if (TryClaimDrive(ControlUnder(p.pos), p.id)) continue;
+
+                if (steerId == NoId && steerArea.Contains(p.pos))
+                {
+                    steerId = p.id;
+                    if (dynamicJoystick) joystickCentre = ClampCentre(p.pos);
+                }
             }
-            else if (dashCamId == NoId && dashCamRect.Contains(p.pos))
+            else if (slideBetweenControls)
             {
-                dashCamId = p.id;
-            }
-            else if (pauseId == NoId && pauseRect.Contains(p.pos))
-            {
-                pauseId = p.id;
-            }
-            else if (steerId == NoId && steerArea.Contains(p.pos))
-            {
-                steerId = p.id;
-                if (dynamicJoystick) joystickCentre = ClampCentre(p.pos);
-            }
-            else if (throttleId == NoId && throttleArea.Contains(p.pos))
-            {
-                throttleId = p.id;
+                // A finger that went down on empty space can still slide onto a pedal or the lever.
+                TryClaimDrive(ControlUnder(p.pos), p.id);
             }
         }
+    }
+
+    /// <summary>
+    /// Which of the three bottom-right controls a point is over. Their padded touch rects
+    /// can overlap, so the one the finger sits deepest inside wins.
+    /// </summary>
+    private DriveControl ControlUnder(Vector2 pos)
+    {
+        DriveControl best = DriveControl.None;
+        float bestDepth = float.MaxValue;
+
+        Consider(handbrakeHit, DriveControl.Handbrake, pos, ref best, ref bestDepth);
+        Consider(brakeHit, DriveControl.Brake, pos, ref best, ref bestDepth);
+        Consider(accelHit, DriveControl.Accelerator, pos, ref best, ref bestDepth);
+
+        return best;
+    }
+
+    private static void Consider(Rect r, DriveControl control, Vector2 pos,
+                                 ref DriveControl best, ref float bestDepth)
+    {
+        if (!r.Contains(pos)) return;
+
+        // Normalised offset from the centre, so a wide rect isn't unfairly favoured.
+        Vector2 n = new Vector2((pos.x - r.center.x) / (r.width * 0.5f),
+                                (pos.y - r.center.y) / (r.height * 0.5f));
+        float depth = n.sqrMagnitude;
+        if (depth < bestDepth)
+        {
+            bestDepth = depth;
+            best = control;
+        }
+    }
+
+    private bool IsDriveFree(DriveControl control)
+    {
+        switch (control)
+        {
+            case DriveControl.Handbrake: return handbrakeId == NoId;
+            case DriveControl.Brake: return brakeId == NoId;
+            case DriveControl.Accelerator: return accelId == NoId;
+            default: return false;
+        }
+    }
+
+    private bool TryClaimDrive(DriveControl control, int pointerId)
+    {
+        if (!IsDriveFree(control)) return false;
+
+        switch (control)
+        {
+            case DriveControl.Handbrake:
+                handbrakeId = pointerId;
+                SetHandbrake(true);
+                return true;
+            case DriveControl.Brake:
+                brakeId = pointerId;
+                return true;
+            case DriveControl.Accelerator:
+                accelId = pointerId;
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    private void ReleaseDrive(DriveControl control)
+    {
+        switch (control)
+        {
+            case DriveControl.Handbrake:
+                handbrakeId = NoId;
+                SetHandbrake(false);
+                break;
+            case DriveControl.Brake:
+                brakeId = NoId;
+                break;
+            case DriveControl.Accelerator:
+                accelId = NoId;
+                break;
+        }
+    }
+
+    /// <summary>Hands a finger over from one bottom-right control to another mid-drag.</summary>
+    private void TrySlide(Pointer p)
+    {
+        DriveControl held;
+        if (p.id == handbrakeId) held = DriveControl.Handbrake;
+        else if (p.id == brakeId) held = DriveControl.Brake;
+        else if (p.id == accelId) held = DriveControl.Accelerator;
+        else return;   // steering and the top-row buttons never hand off
+
+        DriveControl now = ControlUnder(p.pos);
+        if (now == DriveControl.None || now == held) return;
+        if (!IsDriveFree(now)) return;   // another finger owns it; keep what we have
+
+        ReleaseDrive(held);
+        TryClaimDrive(now, p.id);
     }
 
     private Vector2 ClampCentre(Vector2 pos)
@@ -318,53 +525,66 @@ public class MobileRacingUI : MonoBehaviour
                            Mathf.Clamp(pos.y, steerArea.yMin + r, steerArea.yMax - r));
     }
 
-    // ------------------------------------------------------------------ controls
+    // ------------------------------------------------------------------ buttons
 
     private void UpdateButtons()
     {
+        UpdateMomentary(ref cameraId, cameraRect, CameraPressed);
+        UpdateMomentary(ref pauseId, pauseRect, PausePressed);
+        UpdateMomentary(ref mapId, mapRect, MapPressed);
+
+        UpdateToggle(ref dashCamId, dashCamRect, SetDashCam, DashCamOn);
+        UpdateToggle(ref mirrorId, mirrorRect, SetMirror, MirrorOn);
+
         Pointer p;
 
-        // Camera: fires on release inside the button.
-        if (cameraId != NoId)
-        {
-            if (!TryGetPointer(cameraId, out p)) cameraId = NoId;
-            else if (p.ended)
-            {
-                if (cameraRect.Contains(p.pos) && CameraPressed != null) CameraPressed();
-                cameraId = NoId;
-            }
-        }
-
-        // Pause: fires on release inside the button.
-        if (pauseId != NoId)
-        {
-            if (!TryGetPointer(pauseId, out p)) pauseId = NoId;
-            else if (p.ended)
-            {
-                if (pauseRect.Contains(p.pos) && PausePressed != null) PausePressed();
-                pauseId = NoId;
-            }
-        }
-
-        // Dash cam: latching toggle, flips on release inside the button.
-        if (dashCamId != NoId)
-        {
-            if (!TryGetPointer(dashCamId, out p)) dashCamId = NoId;
-            else if (p.ended)
-            {
-                if (dashCamRect.Contains(p.pos)) SetDashCam(!DashCamOn, true);
-                dashCamId = NoId;
-            }
-        }
-
         // Horn: held for as long as the finger is down.
-        if (hornId != NoId)
+        if (hornId != NoId && (!TryGetPointer(hornId, out p) || p.ended))
         {
-            if (!TryGetPointer(hornId, out p) || p.ended)
+            hornId = NoId;
+            SetHorn(false);
+        }
+
+        // Handbrake: held, and releases if the finger slides off the lever.
+        if (handbrakeId != NoId)
+        {
+            if (!TryGetPointer(handbrakeId, out p) || p.ended)
             {
-                hornId = NoId;
-                SetHorn(false);
+                handbrakeId = NoId;
+                SetHandbrake(false);
             }
+            else
+            {
+                SetHandbrake(handbrakeHit.Contains(p.pos));
+            }
+        }
+    }
+
+    private void UpdateMomentary(ref int id, Rect rect, Action onPressed)
+    {
+        if (id == NoId) return;
+
+        Pointer p;
+        if (!TryGetPointer(id, out p)) { id = NoId; return; }
+
+        if (p.ended)
+        {
+            if (rect.Contains(p.pos) && onPressed != null) onPressed();
+            id = NoId;
+        }
+    }
+
+    private void UpdateToggle(ref int id, Rect rect, Action<bool, bool> setter, bool current)
+    {
+        if (id == NoId) return;
+
+        Pointer p;
+        if (!TryGetPointer(id, out p)) { id = NoId; return; }
+
+        if (p.ended)
+        {
+            if (rect.Contains(p.pos)) setter(!current, true);
+            id = NoId;
         }
     }
 
@@ -376,6 +596,14 @@ public class MobileRacingUI : MonoBehaviour
         if (notify && DashCamToggled != null) DashCamToggled(on);
     }
 
+    /// <summary>Sets the mirror toggle. Pass notify = false to sync the HUD without raising the event.</summary>
+    public void SetMirror(bool on, bool notify = true)
+    {
+        if (MirrorOn == on) return;
+        MirrorOn = on;
+        if (notify && MirrorToggled != null) MirrorToggled(on);
+    }
+
     private void SetHorn(bool down)
     {
         if (HornHeld == down) return;
@@ -383,6 +611,16 @@ public class MobileRacingUI : MonoBehaviour
         if (down) { if (HornDown != null) HornDown(); }
         else { if (HornUp != null) HornUp(); }
     }
+
+    private void SetHandbrake(bool down)
+    {
+        if (HandbrakeHeld == down) return;
+        HandbrakeHeld = down;
+        if (down) { if (HandbrakeDown != null) HandbrakeDown(); }
+        else { if (HandbrakeUp != null) HandbrakeUp(); }
+    }
+
+    // ----------------------------------------------------------------- steering
 
     private void UpdateSteering()
     {
@@ -408,29 +646,6 @@ public class MobileRacingUI : MonoBehaviour
         joystickCentre = Vector2.MoveTowards(joystickCentre, joystickHome, radius * steerReturnSpeed * 2f * dt);
     }
 
-    private void UpdateThrottle()
-    {
-        Pointer p;
-
-        if (throttleId != NoId)
-        {
-            if (TryGetPointer(throttleId, out p) && !p.ended)
-            {
-                float t = Mathf.InverseLerp(throttleRect.yMax, throttleRect.yMin, p.pos.y); // 0 bottom -> 1 top
-                Throttle = throttleIsBidirectional
-                    ? ApplyDeadZone(t * 2f - 1f, throttleDeadZone)
-                    : Mathf.Clamp01(t);
-                return;
-            }
-            throttleId = NoId;
-        }
-
-        if (throttleSpringsBack)
-        {
-            Throttle = Mathf.MoveTowards(Throttle, 0f, throttleReturnSpeed * Time.unscaledDeltaTime);
-        }
-    }
-
     private static float ApplyDeadZone(float value, float deadZone)
     {
         value = Mathf.Clamp(value, -1f, 1f);
@@ -441,13 +656,60 @@ public class MobileRacingUI : MonoBehaviour
         return Mathf.Sign(value) * ((mag - deadZone) / (1f - deadZone));
     }
 
+    // ------------------------------------------------------------------- pedals
+
+    private void UpdatePedals()
+    {
+        accelTarget = PedalTarget(ref accelId, accelHit, accelRect);
+        brakeTarget = PedalTarget(ref brakeId, brakeHit, brakeRect);
+
+        float dt = Time.unscaledDeltaTime;
+        Accelerator = MovePedal(Accelerator, accelTarget, dt);
+        Brake = MovePedal(Brake, brakeTarget, dt);
+    }
+
+    private float PedalTarget(ref int id, Rect hit, Rect visual)
+    {
+        if (id == NoId) return 0f;
+
+        Pointer p;
+        if (!TryGetPointer(id, out p) || p.ended)
+        {
+            id = NoId;
+            return 0f;
+        }
+
+        // The finger keeps the claim until it lifts, but the pedal only stays
+        // engaged while it is actually over the pad.
+        if (!hit.Contains(p.pos)) return 0f;
+
+        if (!analogPedalTravel) return 1f;
+
+        // Bottom of the pad = light pressure, top = full.
+        return Mathf.Clamp01(Mathf.InverseLerp(visual.yMax, visual.yMin, p.pos.y));
+    }
+
+    private float MovePedal(float current, float target, float dt)
+    {
+        float speed = target > current ? pedalPressSpeed : pedalReleaseSpeed;
+        if (speed <= 0f) return target;
+        return Mathf.MoveTowards(current, target, speed * dt);
+    }
+
     /// <summary>Drops every active touch and zeroes the inputs (call when pausing or respawning).</summary>
     public void ResetInput()
     {
-        cameraId = hornId = dashCamId = pauseId = steerId = throttleId = NoId;
+        cameraId = hornId = dashCamId = mapId = mirrorId = pauseId = NoId;
+        steerId = handbrakeId = brakeId = accelId = NoId;
+
         SetHorn(false);
+        SetHandbrake(false);
+
         Steering = 0f;
-        Throttle = 0f;
+        Accelerator = 0f;
+        Brake = 0f;
+        accelTarget = 0f;
+        brakeTarget = 0f;
         knobOffset = Vector2.zero;
         joystickCentre = joystickHome;
     }
@@ -467,47 +729,15 @@ public class MobileRacingUI : MonoBehaviour
         DrawImage(knobRect, joystickKnob, controlTint, "");
     }
 
-    private void DrawThrottle()
-    {
-        DrawImage(throttleRect, throttleTrack, controlTint, "THROTTLE");
-
-        // Fill: from the centre when bidirectional, from the bottom otherwise.
-        float value01 = throttleIsBidirectional ? (Throttle + 1f) * 0.5f : Mathf.Clamp01(Throttle);
-        float origin01 = throttleIsBidirectional ? 0.5f : 0f;
-
-        if (throttleFill != null && !Mathf.Approximately(value01, origin01))
-        {
-            Color prev = GUI.color;
-            GUI.color = controlTint;
-            DrawVerticalFill(throttleRect, throttleFill, origin01, value01);
-            GUI.color = prev;
-        }
-
-        float knobH = throttleKnobHeight * scale;
-        float knobY = Mathf.Lerp(throttleRect.yMax, throttleRect.yMin, value01) - knobH * 0.5f;
-        knobY = Mathf.Clamp(knobY, throttleRect.yMin - knobH * 0.25f, throttleRect.yMax - knobH * 0.75f);
-        Rect knobRect = new Rect(throttleRect.x, knobY, throttleRect.width, knobH);
-        DrawImage(knobRect, throttleKnob, controlTint, "");
-    }
-
-    private static void DrawVerticalFill(Rect rect, Texture tex, float from01, float to01)
-    {
-        float lo = Mathf.Min(from01, to01);
-        float hi = Mathf.Max(from01, to01);
-        float yBottom = Mathf.Lerp(rect.yMax, rect.yMin, lo);
-        float yTop = Mathf.Lerp(rect.yMax, rect.yMin, hi);
-
-        Rect clip = new Rect(rect.x, yTop, rect.width, yBottom - yTop);
-        if (clip.height <= 0f) return;
-
-        GUI.BeginGroup(clip);
-        GUI.DrawTexture(new Rect(0f, rect.y - clip.y, rect.width, rect.height), tex, ScaleMode.StretchToFill, true);
-        GUI.EndGroup();
-    }
-
     private Color TintFor(bool pressed)
     {
         return pressed ? buttonPressedTint : buttonIdleTint;
+    }
+
+    /// <summary>Pedal tint fades between idle and pressed with travel.</summary>
+    private Color TintFor(float amount01)
+    {
+        return Color.Lerp(buttonIdleTint, buttonPressedTint, Mathf.Clamp01(amount01));
     }
 
     private void DrawImage(Rect rect, Texture tex, Color tint, string placeholderLabel)
