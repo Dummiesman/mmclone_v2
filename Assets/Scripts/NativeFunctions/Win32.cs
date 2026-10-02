@@ -85,6 +85,16 @@ public class Win32
     }
 
 #if UNITY_STANDALONE_WIN || UNITY_EDITOR_WIN
+    [DllImport("user32.dll", CharSet = CharSet.Unicode, EntryPoint = "MessageBoxW")]
+    public static extern int MessageBox(IntPtr hWnd, string text, string caption, uint type);
+
+    public const uint MB_OK = 0x0, MB_OKCANCEL = 0x1, MB_YESNO = 0x4;
+    public const uint MB_ICONERROR = 0x10, MB_ICONQUESTION = 0x20;
+    public const uint MB_ICONWARNING = 0x30, MB_ICONINFORMATION = 0x40;
+    public const uint MB_TOPMOST = 0x40000;
+
+    public const int IDOK = 1, IDCANCEL = 2, IDYES = 6, IDNO = 7;
+
     [DllImport("user32.dll")]
     public static extern IntPtr GetActiveWindow();
 
