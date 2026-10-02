@@ -6,6 +6,7 @@ public class MMHud : MonoBehaviour
     public Hudmap Map { get; private set; }
     public HudArrow Arrow { get; private set; }
     public MMHudTimer Timer => timer;
+    public MMMirror Mirror => mirror;
 
     public ResultsMenu ResultsMenu => resultsMenu;
 
@@ -33,6 +34,7 @@ public class MMHud : MonoBehaviour
     private PopupMain popupMain;
     private PopupOptions popupOptions;
     private PopupAudio popupAudio;
+    private PopupGraphics popupGraphics;
 
     private float messageUpperY;
     private float messageLowerY;
@@ -93,6 +95,7 @@ public class MMHud : MonoBehaviour
         popupMain = new PopupMain(game);
         popupOptions = new PopupOptions();
         popupAudio = new PopupAudio();
+        popupGraphics = new PopupGraphics(game);
 
         menuManager.enabled = false;
     }
@@ -179,6 +182,14 @@ public class MMHud : MonoBehaviour
             mobileUi.DashCamToggled += (enable) =>
             {
                 player.ToggleDash();
+            };
+            mobileUi.MirrorToggled += (enable) =>
+            {
+                ToggleMirror();
+            };
+            mobileUi.MapPressed += () =>
+            {
+                NextMapMode();
             };
 
             player.Input.MobileInputUI = mobileUi; // gross, but works for now
