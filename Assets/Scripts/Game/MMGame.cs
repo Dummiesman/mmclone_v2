@@ -1,9 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
-using System.Runtime.ConstrainedExecution;
 using UnityEngine;
-using UnityEngine.SceneManagement;
 
 public enum GameSound
 {
@@ -38,6 +36,7 @@ public class MMGame : MonoBehaviour
     public SDLCity Level => city;
     public SpeechAudio SpeechAudio => speechAudio;
 
+    private GameObject rainParticles;
     private GameMusic music;
     private SDLCity city;
     private SpeechAudio speechAudio;
@@ -166,7 +165,8 @@ public class MMGame : MonoBehaviour
             new LoadStep("InitAmbientAudio", () => city.InitAmbientAudio()),
             new LoadStep("InitAI",           () => city.InitAI()),
             new LoadStep("InitCulling",      () => city.InitCulling()),
-
+            
+            new LoadStep("InitWeather",      InitWeather),
             new LoadStep("PostCity",         PostCitySetup),
             new LoadStep("InitSpeech",       InitSpeech),
             new LoadStep("InitPlayer",       InitPlayer),
@@ -203,18 +203,6 @@ public class MMGame : MonoBehaviour
         // light renderer
         gameObject.AddComponent<LightGlowRenderer>();
         LightGlow.InitLights();
-
-        // vehicle systems
-        float weatherFriction = 1.0f;
-        if (GameState.SelectedWeather == MMWeather.Raining)
-        {
-            weatherFriction = 0.75f;
-            if (GameState.SelectedTimeOfDay != MMTimeOfDay.Night)
-            {
-                weatherFriction = 0.8f;
-            }
-        }
-        VehWheel.WeatherFriction = weatherFriction;
     }
 
     private void InitSounds()
@@ -269,6 +257,45 @@ public class MMGame : MonoBehaviour
         VehicleAudioContainer.SirenCSVName = $"{cityName}policesiren";
 
         city = gameObject.AddComponent<SDLCity>();
+    }
+
+    private void InitWeather()
+    {
+        // init rain particles
+        if (GameState.SelectedWeather == MMWeather.Raining)
+        {
+            var br = new ParticleBirthRule(AssetManager.OpenNode("tune", "rain.asBirthRule"));
+            var ps = new GameObject("Rain Particles").AddComponent<ParticleSim>();
+            ps.Init();
+
+            ps.SetTextureSheet("ptx_rain");
+            ps.TextureHeightTiles = 4;
+            ps.TextureWidthTiles = 4;
+            ps.BirthRule = br;
+
+            ps.BirthRule.SpewTimeLimit = 0; //no loop end
+            ps.EmitOverTime = true; //loop
+
+            rainParticles = ps.gameObject;
+        }
+
+        // init wheel friction
+        float weatherFriction = 1.0f;
+        if (GameState.SelectedWeather == MMWeather.Raining)
+        {
+            weatherFriction = 0.75f;
+            if (GameState.SelectedTimeOfDay != MMTimeOfDay.Night)
+            {
+                weatherFriction = 0.8f;
+            }
+        }
+        VehWheel.WeatherFriction = weatherFriction;
+
+        // setup wheel particles
+        if(GameState.SelectedWeather == MMWeather.Raining)
+        {
+            VehWheelPtx.SetRainyWeatherMode();
+        }
     }
 
     private void PostCitySetup()
@@ -522,6 +549,56 @@ public class MMGame : MonoBehaviour
         {
             Time.timeScale = (Time.timeScale > 0.5f) ? 0.0f : 1.0f;
             MMAudioMixer.ToggleMute();
+        }
+    }
+
+    private void LateUpdate()
+    {
+        // match up rain to the camera
+        Vector3 rainPosition = Vector3.zero;
+        bool shouldShowRain = false;
+        if (Level != null)
+        {
+            var mainViewport = ViewportManager.MainViewport;
+            if (mainViewport != null && mainViewport.ActiveCamera != null)
+            {
+                int roomId = Level.FindRoomIdWithWarps(mainViewport.ActiveCamera.transform.position);
+                var room = Level.GetRoom(roomId);
+                if (room != null)
+                {
+                    if (room.Flags.HasFlag(PSDL.RoomFlags.Subterranean))
+                    {
+                        shouldShowRain = false;
+                    }
+                    else
+                    {
+                        if (room.Flags.HasFlag(PSDL.RoomFlags.SpecialBound))
+                        {
+                            var cameraPos = mainViewport.ActiveCamera.transform.position;
+                            rainPosition = cameraPos + (Vector3.up * 10.0f) + (mainViewport.ActiveCamera.transform.forward.Flatten() * 10.0f);
+                            shouldShowRain = true;
+                        }
+                        else
+                        {
+                            var cameraPos = mainViewport.ActiveCamera.transform.position;
+                            var rayOrigin = cameraPos + (Vector3.up * 100.0f);
+                            var layer = LayerMask.GetMask("Default");
+
+                            if (!Physics.Raycast(rayOrigin, Vector3.down, 100.0f, layer))
+                            {
+                                shouldShowRain = true;
+                                rainPosition = cameraPos + (Vector3.up * 10.0f) + (mainViewport.ActiveCamera.transform.forward.Flatten() * 10.0f);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if (rainParticles != null)
+        {
+            rainParticles.SetActive(shouldShowRain);
+            rainParticles.transform.position = rainPosition;
         }
     }
 
