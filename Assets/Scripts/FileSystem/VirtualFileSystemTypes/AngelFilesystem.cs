@@ -1,9 +1,7 @@
 ﻿using Angel.Archive;
 using Dummiesman.VFS;
-using System.Collections;
 using System.Collections.Generic;
 using System.IO;
-using UnityEngine;
 
 namespace BarebonesFileSystem
 {
@@ -15,7 +13,6 @@ namespace BarebonesFileSystem
         public override Stream GetStream()
         {
             return backingEntry.GetStream(parentStream);
-            //return new MemoryStream(backingEntry.Extract(parentStream));
         }
 
         public AngelFilesystemEntry(string name, string path, Stream parentStream, IFileEntry backingEntry) : base(name, path)
@@ -66,6 +63,7 @@ namespace BarebonesFileSystem
                         string path = VFSEntry.PreparePath(fileEntry.Name);
                         this.entries[path] = new AngelFilesystemEntry(fileName, path, stream, fileEntry);
                     }
+                    break;
                 }
             }
             this.baseStream = stream;

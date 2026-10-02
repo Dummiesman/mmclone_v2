@@ -93,7 +93,7 @@ namespace Dummiesman.VFS
 
     public class VFSSystem : IDisposable
     {
-        protected Dictionary<string, VFSEntry> entries = new Dictionary<string, VFSEntry>(StringComparer.OrdinalIgnoreCase);
+        protected Dictionary<string, VFSEntry> entries = new Dictionary<string, VFSEntry>(4096, StringComparer.OrdinalIgnoreCase);
         public virtual int EntryCount { get { return entries.Count; } }
 
         public virtual byte[] Read(string path) { if (Exists(path)) return GetEntry(path).Read(); return null; }

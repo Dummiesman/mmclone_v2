@@ -4,6 +4,7 @@ using System.IO;
 using UnityEngine;
 using BarebonesFileSystem;
 using Dummiesman.VFS;
+using System.Linq;
 
 public class FileSystem
 {
@@ -91,7 +92,8 @@ public class FileSystem
         }
         if (string.IsNullOrEmpty(_root) || !File.Exists(Path.Combine(_root, "mmlang.dll")))
         {
-            NativeFunctions.MessageBox("Error", "Cannot initialize filesystem. Make sure game data is installed correctly.", MessageBoxButtons.Ok, MessageBoxIcon.Error);
+            NativeFunctions.MessageBox("Missing Game Files", "One or more of the required game files (mmlang, mm2aud, mm2audex, mm2core, mm2tex) is not installed. These do not ship with the game and you must provide them."
+                                       , MessageBoxButtons.Ok, MessageBoxIcon.Error);
             Application.Quit();
         }
 
