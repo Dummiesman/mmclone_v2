@@ -1,7 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Linq;
 using UnityEngine;
 using BarebonesFileSystem;
 using Dummiesman.VFS;
@@ -32,7 +31,11 @@ public class FileSystem
 
     private static void SetupDefaultRootPath()
     {
+#if UNITY_ANDROID
+        AndroidDataPathLocator.TryGetDataPath(out _root);
+#else
         _root = Environment.CurrentDirectory;
+#endif
 
 #if UNITY_EDITOR && !UNITY_ANDROID
         // load settings file if possible
@@ -44,27 +47,10 @@ public class FileSystem
     }
 
     // init vfs
-    private static void InitEmbeddedFilesystem(List<VFSSystem> fileSystems)
-    {
-        foreach (var archiveName in defaultArchiveNames)
-        {
-            TextAsset asset = Resources.Load(archiveName) as TextAsset;
-            if (asset != null)
-            {
-                var ms = new MemoryStream(asset.bytes);
-                fileSystems.Add(new AngelFilesystem(ms));
-            }
-            else
-            {
-                Debug.LogError($"InitEmbeddedFilesystem: Failed to find {archiveName}");
-            }
-        }
-    }
-
-    private static void InitDesktopFilesystem(List<VFSSystem> fileSystems, bool physical)
+    private static void InitPhysicalFilesystem(List<VFSSystem> fileSystems, bool useLooseFiles)
     {
         // load physicalfs
-        if (physical)
+        if (useLooseFiles)
         {
             fileSystems.Add(new PhysicalFilesystem(_root));
             return;
@@ -103,6 +89,11 @@ public class FileSystem
         {
             SetupDefaultRootPath();
         }
+        if (string.IsNullOrEmpty(_root) || !File.Exists(Path.Combine(_root, "mmlang.dll")))
+        {
+            NativeFunctions.MessageBox("Error", "Cannot initialize filesystem. Make sure game data is installed correctly.", MessageBoxButtons.Ok, MessageBoxIcon.Error);
+            Application.Quit();
+        }
 
         // collect fileystsems
         var fileSystems = new List<VFSSystem>();
@@ -117,12 +108,7 @@ public class FileSystem
             }
         }
 
-#if UNITY_ANDROID
-        // todo: eventually merge this so mobile uses persistent data OR embedded
-        InitEmbeddedFilesystem(fileSystems);
-#else
-        InitDesktopFilesystem(fileSystems, UseUnpackedFilesystem);
-#endif
+        InitPhysicalFilesystem(fileSystems, UseUnpackedFilesystem);
 
         VFS = new MultiFilesystem(fileSystems)
         {
