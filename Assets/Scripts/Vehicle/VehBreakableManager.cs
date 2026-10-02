@@ -43,7 +43,7 @@ public class VehBreakableManager : MonoBehaviour
         {
             matrixFile.Load(stream);
         }
-        return matrixFile.Origin;
+        return new Vector3(-matrixFile.Origin.x, matrixFile.Origin.y, -matrixFile.Origin.z); // convert into vehicle space
     }
 
     public void Add(GameObject @object, string basename, string bangerName)
