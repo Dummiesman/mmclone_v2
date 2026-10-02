@@ -276,11 +276,9 @@ public class MMGame : MonoBehaviour
         // setup reflection intensity (todo: should this go here or in city?)
         Shader.SetGlobalFloat("_ReflectionIntensity", 1.0f);
 
-        // mobile optimization
-        if (Application.isMobilePlatform)
-        {
-            city.SetViewDistance(700.0f);
-        }
+        // set graphics settings
+        city.SetViewDistance(GameState.ViewDistance);
+        city.SetObjectDetail(GameState.ObjectDetail);
 
         // log stats
         SharedMaterialCache.LogStats();

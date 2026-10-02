@@ -1057,6 +1057,25 @@ public class SDLCity : MonoBehaviour
         fog.SetViewDistance(viewDist);
     }
 
+    public void SetObjectDetail(MMObjectDetail detail)
+    {
+        switch (detail)
+        {
+            case MMObjectDetail.Low:
+                QualitySettings.lodBias = 0.5f;
+                break;
+            case MMObjectDetail.Medium:
+                QualitySettings.lodBias = 1.0f;
+                break;
+            case MMObjectDetail.High:
+                QualitySettings.lodBias = 1.5f;
+                break;
+            case MMObjectDetail.VeryHigh:
+                QualitySettings.lodBias = 2.0f;
+                break;
+        }
+    }
+
     public void Init(string name)
     {
         this.name = name;
