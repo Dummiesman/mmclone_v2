@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.IO;
 using UnityEngine;
 
 public class VehicleForm : MonoBehaviour
@@ -17,9 +18,14 @@ public class VehicleForm : MonoBehaviour
     private readonly Dictionary<int, GameObject> variantObjects = new Dictionary<int, GameObject>();
 
     private const string bodyObjectName = "BODY_H";
-    private static string[] miscMeshNames = new[] {"break0", "break1", "break2", "break3",
+    private static string[] miscMeshNames = new[] { "break0", "break1", "break2", "break3",
                                                     "break01", "break12", "break23", "break03",
                                                     "fndr0", "fndr1", "whl4", "whl5"};
+
+    private static readonly string[] suspensionPartNames = new[] { "shock0", "shock1", "shock2", "shock3",
+                                                                   "arm0", "arm1", "arm2", "arm3",
+                                                                   "shaft2", "shaft3", "axle0", "axle1" };
+
 
     private ShaderSet shaders;
     private readonly Dictionary<int, Material[]> materialCache = new Dictionary<int, Material[]>();
@@ -85,8 +91,18 @@ public class VehicleForm : MonoBehaviour
 
         if (!string.IsNullOrEmpty(pivotName))
         {
-            var pivot = GetPivot(basename, pivotName);
-            go.transform.localPosition = pivot;
+            if (UsesMatrixPivot(pivotName))
+            {
+                if (TryGetPivot(basename, pivotName, out var matrix))
+                {
+                    go.transform.localPosition = matrix.GetColumn(3);
+                    go.transform.localRotation = matrix.rotation;
+                }
+            }
+            else
+            {
+                go.transform.localPosition = GetPivot(basename, pivotName);
+            }
         }
 
         objects.Add(go);
@@ -213,6 +229,40 @@ public class VehicleForm : MonoBehaviour
         return matrixFile.Origin;
     }
 
+    private static bool UsesMatrixPivot(string part)
+    {
+        foreach (var name in suspensionPartNames)
+        {
+            if (name.Equals(part, System.StringComparison.OrdinalIgnoreCase)) return true;
+        }
+        return false;
+    }
+
+    private static bool TryGetPivot(string basename, string name, out Matrix4x4 pivot)
+    {
+        pivot = Matrix4x4.identity;
+
+        using (var stream = AssetManager.Open("geometry", $"{basename}_{name}.mtx"))
+        {
+            if (stream == null) return false;
+
+            using (var reader = new BinaryReader(stream, System.Text.Encoding.ASCII, true))
+            {
+                Vector3 xaxis = -(reader.ReadVector3()).ConvertCoordinateSpace();
+                Vector3 yaxis = (reader.ReadVector3()).ConvertCoordinateSpace();
+                Vector3 zaxis = (reader.ReadVector3()).ConvertCoordinateSpace();
+                Vector3 offset = (reader.ReadVector3()).ConvertCoordinateSpace();
+
+                pivot.SetColumn(0, new Vector4(xaxis.x, xaxis.y, xaxis.z, 0f));
+                pivot.SetColumn(1, new Vector4(yaxis.x, yaxis.y, yaxis.z, 0f));
+                pivot.SetColumn(2, new Vector4(zaxis.x, zaxis.y, zaxis.z, 0f));
+                pivot.SetColumn(3, new Vector4(offset.x, offset.y, offset.z, 1f));
+            }
+        }
+
+        return true;
+    }
+
     private void PostprocessShaders()
     {
         foreach (var shader in shaders.Shaders)
@@ -246,6 +296,39 @@ public class VehicleForm : MonoBehaviour
             var packageFile = new PackageFile(stream);
             bodyMesh = LoadMesh(packageFile, "BODY_H");
             shadowMesh = LoadMesh(packageFile, "SHADOW_H");
+
+
+            while (packageFile.CurrentFileName != "WHL0_H")
+            {
+                string fileName = packageFile.CurrentFileName;
+                if (fileName.EndsWith("_H", System.StringComparison.OrdinalIgnoreCase))
+                {
+                    string withoutLodName = fileName.Substring(0, fileName.Length - 2);
+                    bool shouldLoad = false;
+                    foreach (var name in suspensionPartNames)
+                    {
+                        if (name.Equals(withoutLodName, System.StringComparison.OrdinalIgnoreCase))
+                        {
+                            shouldLoad = true;
+                            break;
+                        }
+                    }
+
+                    if (shouldLoad)
+                    {
+                        miscMeshes.Add(LoadMesh(packageFile, packageFile.CurrentFileName));
+                    }
+                    else
+                    {
+                        packageFile.Skip();
+                    }
+                }
+                else
+                {
+                    packageFile.Skip();
+                }
+            }
+
             whl0Mesh = LoadMesh(packageFile, "WHL0_H");
             whl1Mesh = LoadMesh(packageFile, "WHL1_H");
             whl2Mesh = LoadMesh(packageFile, "WHL2_H");
