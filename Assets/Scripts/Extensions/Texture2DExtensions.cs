@@ -158,34 +158,20 @@ public static class Texture2DExtensions
         return texture;
     }
 
-    public static Texture2D MakeColorTransparent(this Texture2D main, Color transparentColor)
+    public static Texture2D MakeColorTransparent(this Texture2D main, Color32 transparentColor, bool mipmaps = false)
     {
-        Texture2D newTex = new Texture2D(main.width, main.height, TextureFormat.ARGB32, true);
-        Color[] mainColors = main.GetPixels();
-        Color[] newColors = new Color[newTex.width * newTex.height];
+        var newTex = new Texture2D(main.width, main.height, TextureFormat.RGBA32, mipmaps);
+        var pixels = main.GetPixels32();
+        byte r = transparentColor.r, g = transparentColor.g, b = transparentColor.b;
 
-        //cache for improved speed
-        int width = main.width;
-        int height = main.height;
-
-        for (int x = 0; x < width; x++)
+        for (int i = 0; i < pixels.Length; i++)
         {
-            for (int y = 0; y < height; y++)
-            {
-                int index = y * width + x;
-                var mpx = mainColors[index];
-                float alpha = mpx.a;
-                if (mpx.Equals(transparentColor))
-                {
-                    alpha = 0f;
-                }
-                newColors[index] = new Color(mpx.r, mpx.g, mpx.b, alpha);
-            }
+            if (pixels[i].r == r && pixels[i].g == g && pixels[i].b == b)
+                pixels[i] = new Color32(r, g, b, 0);
         }
 
-        //apply and return
-        newTex.SetPixels(newColors);
-        newTex.Apply(true);
+        newTex.SetPixels32(pixels);
+        newTex.Apply(mipmaps);
         return newTex;
     }
 
