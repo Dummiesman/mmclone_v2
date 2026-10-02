@@ -33,11 +33,13 @@ public class PopupAudio : PopupMenuBase
 
     private void OnSfxVolChanged(float value)
     {
+        GameState.AudioVolume = value;
         MMAudioMixer.Volume = value;
     }
     
     private void OnMusicVolChanged(float value)
     {
+        GameState.MusicVolme = value;
         MMAudioMixer.MusicVolume = value;
     }
 
