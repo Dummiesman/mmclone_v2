@@ -3,14 +3,11 @@ using UnityEngine;
 enum RoamState
 {
     Init,
-    Roaming,
-    DamagedOut
+    Roaming
 }
 
 public class SingleRoam : SingleGame
 {
-    private const float DamagedOutDuration = 3.0f;
-
     private RoamState state;
     private float stateTimer = 0.0f;
 
@@ -28,22 +25,6 @@ public class SingleRoam : SingleGame
                 }
             case RoamState.Roaming:
                 {
-                    if (Player.DamagedOut)
-                    {
-                        Player.Car.SetDrivable(false, VehUndrivableMode.HoldBrakes);
-                        stateTimer = DamagedOutDuration;
-                        state = RoamState.DamagedOut;
-                    }
-                    break;
-                }
-            case RoamState.DamagedOut:
-                {
-                    stateTimer -= Time.deltaTime;
-                    if (stateTimer <= 0.0f)
-                    {
-                        Player.Car.SetDrivable(true);
-                        state = RoamState.Roaming;
-                    }
                     break;
                 }
         }
