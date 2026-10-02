@@ -77,7 +77,7 @@ public class MMGamePlayer : MonoBehaviour
 
         hud = gameObject.AddComponent<MMHud>();
         hud.Init(game, this, car);
-        hud.Map.SetTargetObject(car.Model.transform);
+        hud.Map.SetTargetObject(car.transform);
 
         cameraMgr = gameObject.AddComponent<VehicleCameraManager>();
         cameraMgr.Init(
@@ -189,7 +189,7 @@ public class MMGamePlayer : MonoBehaviour
         // debug splash
         if(UnityEngine.Input.GetKeyDown(KeyCode.Alpha5))
         {
-            car.Splash.Activate(car.Model.transform.position.y);
+            car.Splash.Activate(car.transform.position.y);
         }
         if (UnityEngine.Input.GetKeyDown(KeyCode.Alpha6))
         {
@@ -200,7 +200,7 @@ public class MMGamePlayer : MonoBehaviour
         bool roomChanged = false;
         if(car != null  && game.Level != null)
         {
-            int rid = game.Level.FindRoomIdWithWarpsCheckMiss(car.Model.transform.position, curRoom);
+            int rid = game.Level.FindRoomIdWithWarpsCheckMiss(car.transform.position, curRoom);
             if (rid != curRoom)
             {
                 roomChanged = true;
@@ -249,8 +249,7 @@ public class MMGamePlayer : MonoBehaviour
         }
 
         // Reset if fallen out of world.
-        float carHeight = car.Model.transform.position.y;
-
+        float carHeight = car.transform.position.y;
         if (carHeight < -50.0f)
         {
             car.Reset();

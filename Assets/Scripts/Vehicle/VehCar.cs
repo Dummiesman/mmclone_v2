@@ -72,10 +72,7 @@ public class VehCar : MonoBehaviour
     public bool IsDrivable => (flags & FlagDrivable) != 0;
     public VehUndrivableMode UndrivableMode => undrivableMode;
     private VehUndrivableMode undrivableMode;
-
-    /// <summary>PSDL room this car is currently in. Drives culling and the
-    /// water-level query.</summary>
-    public int CurrentRoom { get; private set; }
+    public int CurrentRoom => (Model != null) ? Model.RoomID : 0;
 
     //public bool IsInitialised => VehCarSim != null && VehCarSim.Initialised;
 
@@ -345,20 +342,15 @@ public class VehCar : MonoBehaviour
         }
 
         // ---- water -------------------------------------------------------
-        if(level != null)
+        if(CurrentRoom > 0 && level != null)
         {
-            var currentRoom = Model.RoomID;
-
-            if (currentRoom > 0)
+            var room = level.GetRoom(CurrentRoom);
+            if (room.IsWaterRoom)
             {
-                var room = level.GetRoom(currentRoom);
-                if (room.IsWaterRoom)
+                float waterLevel = level.GetWaterLevel(CurrentRoom);
+                if (transform.position.y <= waterLevel && !Splash.enabled)
                 {
-                    float waterLevel = level.GetWaterLevel(currentRoom);
-                    if (transform.position.y <= waterLevel && !Splash.enabled)
-                    {
-                        Splash.Activate(waterLevel);
-                    }
+                    Splash.Activate(waterLevel);
                 }
             }
         }
@@ -411,7 +403,7 @@ public class VehCar : MonoBehaviour
             }
             if(Model != null && Model.Breakables != null)
             {
-                Model.Breakables.Impact(collision.impulse.magnitude, collision.contacts[0].point, Model.RoomID);
+                Model.Breakables.Impact(collision.impulse.magnitude, collision.contacts[0].point, CurrentRoom);
             }
             if(Damage != null)
             {

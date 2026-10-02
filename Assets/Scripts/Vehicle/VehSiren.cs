@@ -49,7 +49,7 @@ public class VehSiren : VehSubsystem
 
     private void LateUpdate()
     {
-        var baseDir = Car.Model.transform.forward;
+        var baseDir = Car.transform.forward;
         for (int i = 0; i < glows.Length; i++)
         {
             var sirenObject = Car.Model.Sirens[i];

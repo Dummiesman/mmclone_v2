@@ -188,7 +188,7 @@ public class VehCarDamage : VehSubsystem
                 {
                     sparks.RadialBlast(Mathf.RoundToInt(sparkMultiplier * impulse * 0.016f), collision.contacts[0].point, collision.contacts[0].normal);
                 }
-                shards.EmitShards(collision.contacts[0].point, impulse, Car.VehCarSim.Speed, Car.Model.transform.rotation);
+                shards.EmitShards(collision.contacts[0].point, impulse, Car.VehCarSim.Speed, Car.transform.rotation);
 
                 AddDamage(impulse);
             }

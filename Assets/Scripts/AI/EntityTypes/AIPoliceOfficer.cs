@@ -200,7 +200,7 @@ namespace MM2
                 if (m_PoliceState != PoliceState.Idle)
                 {
                     var perpPos = m_FollowCar.transform.position;
-                    network.MapComponent(perpPos, out m_PerpComponentID, out m_PerpComponentType, m_FollowCar.Model.RoomID);
+                    network.MapComponent(perpPos, out m_PerpComponentID, out m_PerpComponentType, m_FollowCar.CurrentRoom);
 
                     m_FollowCarDistance = FlatDist(perpPos, Car.transform.position);
                     m_PoliceState = network.PoliceForce.State(Car, m_FollowCar, m_FollowCarDistance);
@@ -363,18 +363,12 @@ namespace MM2
             return s == VehiclePhysicsState.Forward || s == VehiclePhysicsState.Shortcut;
         }
 
-        /// <summary>
-        /// Plans a route from our current position/heading to the target, filling m_IntersectionIds.
-        /// NOTE: the original aiMap::CalcRoute also took a per-behaviour direction (up for Ram,
-        /// perp backward for Push, perp forward for Block/Follow). Router.CalcRoute has no slot for it,
-        /// so all behaviours now route identically. Add a destForward param to the Router if needed.
-        /// </summary>
         private void CalcRouteToPerp(Vector3 target)
         {
             var ours = Car.transform;
             network.Router.CalcRoute(ours.position, ours.forward, target,
                 m_IntersectionIds, out m_NumIntersectionIds,
-                Car.Model.RoomID, m_FollowCar.Model.RoomID, true);
+                Car.CurrentRoom, m_FollowCar.CurrentRoom, true);
         }
 
         /// <summary>
@@ -620,7 +614,7 @@ namespace MM2
             var carPosition = perpCar.transform.position;
 
             int outId = 0; CompType outType = 0;
-            network.MapComponent(carPosition, out outId, out outType, perpCar.Model.RoomID);
+            network.MapComponent(carPosition, out outId, out outType, perpCar.CurrentRoom);
 
             var type = (CompType)outType;
             if (type == CompType.Road)
@@ -641,7 +635,7 @@ namespace MM2
             var carFwd = carTransform.forward;
 
             int outId = 0; CompType outType = 0;
-            network.MapComponent(carPos, out outId, out outType, perpCar.Model.RoomID);
+            network.MapComponent(carPos, out outId, out outType, perpCar.CurrentRoom);
 
             if ((CompType)outType != CompType.Road)
                 return false;
@@ -672,7 +666,7 @@ namespace MM2
         public bool Speeding(VehCar perpCar)
         {
             int cmpId = 0; CompType cmpType = 0;
-            network.MapComponent(perpCar.transform.position, out cmpId, out cmpType, perpCar.Model.RoomID);
+            network.MapComponent(perpCar.transform.position, out cmpId, out cmpType, perpCar.CurrentRoom);
 
             var type = (CompType)cmpType;
             if (type != CompType.Road && type != CompType.Shortcut)

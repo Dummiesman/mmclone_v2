@@ -587,6 +587,6 @@ public class Dashboard : MonoBehaviour
     private void LateUpdate()
     {
         // follow player car
-        transform.SetPositionAndRotation(vehicle.Model.transform.TransformPoint(camOffset), vehicle.Model.transform.rotation * Quaternion.Euler(0, 180, 0));
+        transform.SetPositionAndRotation(vehicle.transform.TransformPoint(camOffset), vehicle.transform.rotation * Quaternion.Euler(0, 180, 0));
     }
 }

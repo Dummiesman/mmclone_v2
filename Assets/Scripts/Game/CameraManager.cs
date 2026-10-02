@@ -149,7 +149,7 @@ public class VehicleCameraManager : MonoBehaviour
 
 
         cameras[3] = viewport.AddCamera();
-        cameras[3].gameObject.AddComponent<OrbitCamera>().Target = vehicle.Model.transform;
+        cameras[3].gameObject.AddComponent<OrbitCamera>().Target = vehicle.transform;
 
         bumperCam = cameras[2];
         InitDashCam(vehicle);
@@ -244,8 +244,8 @@ public class VehicleCameraManager : MonoBehaviour
     private void LateUpdate()
     {
         // force fixed cameras into position
-        dashCam.transform.SetPositionAndRotation(vehicle.Model.transform.TransformPoint(dashCamOffset), vehicle.Model.transform.rotation);
-        bumperCam.transform.SetPositionAndRotation(vehicle.Model.transform.TransformPoint(bumperCamOffset), vehicle.Model.transform.rotation);
+        dashCam.transform.SetPositionAndRotation(vehicle.transform.TransformPoint(dashCamOffset), vehicle.transform.rotation);
+        bumperCam.transform.SetPositionAndRotation(vehicle.transform.TransformPoint(bumperCamOffset), vehicle.transform.rotation);
     }
 
     public void Destroy()

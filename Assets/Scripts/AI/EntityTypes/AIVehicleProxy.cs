@@ -8,11 +8,11 @@ public class AIVehicleProxy : AIEntity
 {
     public VehCar Vehicle { get; private set; }
 
-    public override int RoomID => Vehicle.Model.RoomID;
+    public override int RoomID => Vehicle.CurrentRoom;
 
     public override float Speed => Vehicle.VehCarSim.Speed;
-    public override Vector3 Position => Vehicle.Model.transform.position;
-    public override Quaternion Rotation => Vehicle.Model.transform.rotation;
+    public override Vector3 Position => Vehicle.transform.position;
+    public override Quaternion Rotation => Vehicle.transform.rotation;
 
     private Bounds colliderBounds => Vehicle.Bound.Collider.sharedMesh.bounds;
     public override float FrontBumperDistance => colliderBounds.center.z + (colliderBounds.size.z / 2.0f);
@@ -72,7 +72,7 @@ public class AIVehicleProxy : AIEntity
 
         var roadInstance = RoadInfo.RoadInstance;
         var road = roadInstance.Road;
-        var position = Vehicle.Model.transform.position;
+        var position = Vehicle.transform.position;
 
         road.GetSidedInfoAtPoint(position, out int railIndex, out int sectionIndex, out var side);
         if (railIndex < 0 || sectionIndex < 0 || side == RoadSide.Invalid)
@@ -137,7 +137,7 @@ public class AIVehicleProxy : AIEntity
         lastRoomId = RoomID;
 
         // find what road we're on
-        var vehPos = Vehicle.Model.transform.position;
+        var vehPos = Vehicle.transform.position;
         var aiNetwork = network;
 
         // null current road
