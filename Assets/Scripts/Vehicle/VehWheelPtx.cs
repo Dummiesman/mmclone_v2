@@ -1,16 +1,22 @@
-using System.Collections;
-using System.Collections.Generic;
 using UnityEngine;
 
 public class VehWheelPtx : VehSubsystem
 {
     private const string TEX_SHEET_NAME = "ptx_wheel";
     private static string[] PtxName = new[] { "dirt", "dust", "grass", "leaf", "smoke", "snow", "splash", "rock" };
-    private ParticleBirthRule[] birthRules;
+    private static ParticleBirthRule[] birthRules;
     private ParticleSim particleSim;
     private float[] ptxTimers = new float[2] { 0.0f, 0.0f };
+    private static int instanceCount = 0;
+    private bool counted = false;
 
-    private void LoadBirthRules()
+    public static void SetRainyWeatherMode()
+    {
+        // swap smoke with splash
+        birthRules[4] = birthRules[6];
+    }
+
+    private static void LoadBirthRules()
     {
         birthRules = new ParticleBirthRule[PtxName.Length];
         for(int i=0; i < PtxName.Length; i++)
@@ -35,7 +41,12 @@ public class VehWheelPtx : VehSubsystem
             particleSim.TextureHeightTiles = 8;
             particleSim.TextureWidthTiles = 8;
             particleSim.IsLocal = false;
-            LoadBirthRules();
+
+            if (instanceCount++ == 0)
+            {
+                LoadBirthRules();
+            }
+            counted = true;
         }
         else
         {
@@ -46,6 +57,15 @@ public class VehWheelPtx : VehSubsystem
 
     private void OnDestroy()
     {
+        if (counted)
+        {
+            counted = false;
+            if (--instanceCount == 0)
+            {
+                birthRules = null;
+            }
+        }
+
         Destroy(particleSim);
     }
 
