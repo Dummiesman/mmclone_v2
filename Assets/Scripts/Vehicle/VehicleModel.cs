@@ -60,8 +60,7 @@ public class VehicleModel : LevelInstance
     /// <summary>
     /// Body geometry picks its shader per ShaderSet entry: VehicleShaderVariants
     /// hands back the cheap one-pass shader for textures with no alpha channel
-    /// and the two-pass one for the rest. Cached in a static field rather than
-    /// written inline so every material set that uses it compares equal and
+    /// and the two-pass one for the rest.
     /// they share one Material[] per variant.
     /// </summary>
     private static readonly ShaderSelector VehicleShaderFor =
@@ -604,8 +603,44 @@ public class VehicleModel : LevelInstance
         }
     }
 
+    private void UpdateBody()
+    {
+        const bool enableBodyShake = false;
+
+        var sim = vehicle.VehCarSim;
+        Quaternion bodyShake = Quaternion.identity;
+
+        if (!enableBodyShake || sim == null || sim.Wheels == null || sim.OnGround() == 0)
+        {
+            bodyShake = Quaternion.identity;
+            transform.localRotation = bodyShake;
+            return;
+        }
+
+        const float ShakeRandomScale = 0.06f;
+        const float ShakeSpinScale = 0.03f;   // 0.01 on the other branch
+
+        var wheel = sim.Wheels[0];
+        float spin = Mathf.Abs(wheel.RotationRate);
+
+        // 0 below the aliasing threshold, 1 one full pi above it.
+        float alias = Mathf.Clamp01((spin * Time.deltaTime - Mathf.PI * 0.5f) / Mathf.PI);
+
+        float amp = vehicle.Damage.MedMaxDamagePercentage;
+
+        float jitter = (UnityEngine.Random.value - 0.5f) * amp * alias * ShakeRandomScale;
+        float coherent = Mathf.Sin(wheel.AccumulatedRotation) * amp * (1f - alias) * ShakeSpinScale;
+
+        // Diagonal axis in the parent's (car root) frame.
+        Vector3 axis = (Vector3.right + Vector3.forward).normalized;
+
+        transform.localRotation =
+            Quaternion.AngleAxis((jitter + coherent) * Mathf.Rad2Deg, axis);
+    }
+
     private void UpdateModel()
     {
+        UpdateBody();
         UpdateWheels();
         UpdateFenders();
         UpdateLights();
