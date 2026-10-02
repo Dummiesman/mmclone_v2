@@ -87,7 +87,9 @@ public class SingleStunt : SingleGame
     private bool NextRaceAvailable()
     {
         // only allow next race when it's not a midterm because the results screen says "next LESSON"
-        return GameState.SelectedRace != 2 && GameState.SelectedRace != 6 && GameState.SelectedRace <= 9;
+        if (GameState.SelectedRace == 2 || GameState.SelectedRace == 6 || GameState.SelectedRace >= 10)
+            return false;
+        return true;
     }
 
     public override void NextRace()
@@ -372,7 +374,6 @@ public class SingleStunt : SingleGame
         // setup results
         var playerName = PlayerManager.CurrentPlayer.Name;
         Player.HUD.ResultsMenu.AddName(1, playerName, Timer.Value);
-        Player.HUD.ResultsMenu.SetNextRaceAvailable(NextRaceAvailable());
         Player.HUD.ResultsMenu.SetRewardText(reward.RewardMessage);
 
         // play speech
@@ -395,6 +396,7 @@ public class SingleStunt : SingleGame
         {
             Player.HUD.ResultsMenu.AddLoser(1, playerName);
         }
+        Player.HUD.ResultsMenu.SetNextRaceAvailable(NextRaceAvailable());
 
         var city = CityList.GetCity(Level.Name);
         var cityRecord = PlayerManager.OpenCityRecord(city.RaceDir);
