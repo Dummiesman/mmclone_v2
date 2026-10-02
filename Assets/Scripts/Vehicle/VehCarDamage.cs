@@ -1,6 +1,3 @@
-using System.Collections;
-using System.Collections.Generic;
-using System.Linq;
 using UnityEngine;
 
 public class VehCarDamage : VehSubsystem
@@ -266,7 +263,6 @@ public class VehCarDamage : VehSubsystem
         {
             if (damageResetCounter <= 0f)
             {
-                UnDamagedOut();
                 Reset();
             }
             damageResetCounter -= Time.deltaTime;
