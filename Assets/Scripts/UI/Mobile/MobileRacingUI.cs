@@ -89,7 +89,7 @@ public class MobileRacingUI : MonoBehaviour
     public float pedalHeight = 420f;
     public float pedalSpacing = 26f;
     public float handbrakeHeight = 110f;
-    public float handbrakeSpacing = 26f;
+    public float handbrakeSpacing = 13f;
     public float pedalsRightMargin = 60f;
     public float pedalsBottomMargin = 60f;
     [Tooltip("Extra invisible touch margin around the pedals and handbrake.")]
