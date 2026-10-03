@@ -9,7 +9,6 @@ Shader "Custom/VehicleShaderD3D7_Opaque"
         _Shininess("Shininess", Range(0.03, 1)) = 1
         _AlphaClipThreshold("AlphaClipThreshold", Range(0.03, 1)) = 0.9
         _MainTex("Main Texture (RGB)", 2D) = "white" {}
-        _ReflTex("Reflection Texture (RGB)", 2D) = "black" {}
         _DamageTex("Damage Texture (RGB)", 2D) = "black" {}
         _Reflection("Reflection Intensity", Range(.0, 1.0)) = 0.5
     }

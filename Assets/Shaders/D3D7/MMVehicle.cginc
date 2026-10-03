@@ -43,9 +43,10 @@ float4 _EmissiveColor;
 float _AlphaClipThreshold;
 float _ReflectionIntensity; // Global
 uniform sampler2D _MainTex;
-uniform sampler2D _ReflTex;
 uniform sampler2D _DamageTex;
 uniform half _Reflection;
+sampler2D _ReflTex; // Global
+float4 _ReflTex_ST;
 
 void MMApplyDamageDeform(inout float4 vertex, float3 normal, float vcolorAlpha)
 {
