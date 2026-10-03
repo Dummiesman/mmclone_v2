@@ -42,6 +42,15 @@ namespace MM2.AI
                 State = nextState; // setter schedules the following state and timer
         }
 
+        public override void Reset()
+        {
+            base.Reset();
+
+            currentTimer = float.MaxValue;
+            _currentState = default;
+            nextState = default;
+        }
+
         void SetNextState()
         {
             if (State == TrafficLightState.Red)

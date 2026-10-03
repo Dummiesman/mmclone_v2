@@ -1494,7 +1494,22 @@ namespace MM2.AI
             {
                 racer.Reset();
             }
+            foreach (var intersection in intersections)
+            {
+                intersection.Reset();
+            }
+            foreach (var road in roads)
+            {
+                road.Reset();
+            }
+            foreach (var road in shortcuts)
+            {
+                road.Reset();
+            }
             policeForce.Reset();
+            activeCullingRoom = -1;
+            populatedPedRoads.Clear();
+            populatedTrafficRoads.Clear();
         }
 
         public void SetTrafficDensity(float density)

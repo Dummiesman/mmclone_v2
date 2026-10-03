@@ -68,5 +68,12 @@ namespace MM2.AI
                     waitTimes[entity] += Time.deltaTime;
             }
         }
+
+        public override void Reset()
+        {
+            base.Reset();
+            waitTimes.Clear();
+            waitKeys.Clear();
+        }
     }
 }

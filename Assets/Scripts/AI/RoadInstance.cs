@@ -281,8 +281,9 @@ public class RoadInstance
 
     public void Reset()
     {
-        foreach(var entity in entities)
+        for(int i=entities.Count - 1; i >= 0; i--)
         {
+            var entity = entities[i];
             RemoveEntity(entity);
         }
     }

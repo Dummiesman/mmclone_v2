@@ -61,6 +61,10 @@ namespace MM2.AI
 
         public void Reset()
         {
+            foreach (var device in ControlDevices)
+            {
+                device.Reset();
+            }
             IntersectionLightSet?.Reset();
         }
 
