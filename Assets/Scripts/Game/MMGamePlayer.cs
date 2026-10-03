@@ -144,8 +144,34 @@ public class MMGamePlayer : MonoBehaviour
             sim.SteeringInput = -1.0f;
         }
 
+        // update music
+        if (GameState.AudioFlags.HasFlag(MMAudioFlags.MusicEnabled) && Car != null)
+        {
+            var policeForce = game.Level.AINetwork.PoliceForce;
+            int numChasing = policeForce.GetNumChasers(Car);
+            game.Music.UpdateParams(Car.VehCarSim.Speed, numChasing);
+
+            if (Car.VehCarSim.OnGround() == 0)
+            {
+                // get height above ground
+                var mask = LayerMask.GetMask("Default");
+                if (Physics.Raycast(Car.transform.position, Vector3.down, out var hitInfo, float.MaxValue))
+                {
+                    game.Music.UpdateHeight(hitInfo.distance);
+                }
+                else
+                {
+                    game.Music.UpdateHeight(0.0f);
+                }
+            }
+            else
+            {
+                game.Music.UpdateHeight(0.0f);
+            }
+        }
+
         // cull test
-        if(game != null && game.Level != null)
+        if (game != null && game.Level != null)
         {
             game.Level.Culler.UpdateCameraPosition(ViewportManager.MainViewport.ActiveCamera.transform.position);
         }
@@ -186,16 +212,6 @@ public class MMGamePlayer : MonoBehaviour
             }
         }
 
-        // debug splash
-        if(UnityEngine.Input.GetKeyDown(KeyCode.Alpha5))
-        {
-            car.Splash.Activate(car.transform.position.y);
-        }
-        if (UnityEngine.Input.GetKeyDown(KeyCode.Alpha6))
-        {
-            car.Splash.Deactivate();
-        }
-
         // TEST:  update audio mixer
         bool roomChanged = false;
         if(car != null  && game.Level != null)
@@ -209,7 +225,7 @@ public class MMGamePlayer : MonoBehaviour
 
         }
 
-        if (roomChanged && game != null && game.Level != null && game.Level.AINetwork != null)
+        if (game != null && game.Level != null && game.Level.AINetwork != null)
         {
             game.Level.AINetwork.SetCullRoom(curRoom);
         }

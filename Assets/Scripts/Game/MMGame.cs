@@ -302,6 +302,7 @@ public class MMGame : MonoBehaviour
     {
         // setup reflection intensity (todo: should this go here or in city?)
         Shader.SetGlobalFloat("_ReflectionIntensity", 1.0f);
+        Shader.SetGlobalTexture("_ReflTex", TextureCache.Get(city.Lighting.preset.ReflectionMap));
 
         // set graphics settings
         city.SetViewDistance(GameState.ViewDistance);
@@ -437,7 +438,11 @@ public class MMGame : MonoBehaviour
 
     public void ShowResults()
     {
-        music.PlayResults();
+        if (GameState.AudioFlags.HasFlag(MMAudioFlags.MusicEnabled))
+        {
+            music.PlayResults();
+            music.StartMusic();
+        }
         Player.HUD.ShowResults();
     }
 
@@ -464,13 +469,41 @@ public class MMGame : MonoBehaviour
     {
         // Variants loaded through TextureLoader.Load come back through this hook,
         // so pass them through untouched to avoid recursion
+        if(Level != null && Level.TextureVariantSettings != null)
+        {
+            foreach(var variant in Level.TextureVariantSettings.Variants)
+            {
+                if(name.EndsWith(variant.Suffix, StringComparison.Ordinal))
+                {
+                    return texture;
+                }
+            }
+        }
         if (name.EndsWith("_fa", StringComparison.Ordinal) || name.EndsWith("_ni", StringComparison.Ordinal))
             return texture;
 
         bool isNight = GameState.SelectedTimeOfDay == MMTimeOfDay.Night;
         bool isRaining = GameState.SelectedWeather == MMWeather.Raining;
 
-        // 1. Rain takes priority, even at night
+        // 1. Custom variants take priority
+        if (Level != null && Level.TextureVariantSettings != null)
+        {
+            foreach (var variant in Level.TextureVariantSettings.Variants)
+            {
+                var customVariantVersion = TextureLoader.Load($"{name}{variant.Suffix}");
+                if (customVariantVersion != null)
+                {
+                    texture.Destroy();
+                    if (variant.Desaturate)
+                    {
+                        DesaturateTexture(customVariantVersion.Texture);
+                    }
+                    return customVariantVersion;
+                }
+            }
+        }
+
+        // 2. Rain takes priority, even at night
         if (isRaining)
         {
             var faVersion = TextureLoader.Load($"{name}_fa");
@@ -483,7 +516,7 @@ public class MMGame : MonoBehaviour
             }
         }
 
-        // 2. Night variant (only reached if not raining or no _fa exists)
+        // 3. Night variant (only reached if not raining or no _fa exists)
         if (isNight)
         {
             var niVersion = TextureLoader.Load($"{name}_ni");
@@ -526,13 +559,6 @@ public class MMGame : MonoBehaviour
         if(IsLoaded)
         {
             UpdateGame();
-        }
-
-        if (IsLoaded && Player != null && city != null)
-        {
-            var policeForce = city.AINetwork.PoliceForce;
-            int numChasing = policeForce.GetNumChasers(Player.Car);
-            music.UpdateParams(Player.Car.VehCarSim.Speed, numChasing);
         }
 
         if (Input.GetKeyDown(KeyCode.Escape))
