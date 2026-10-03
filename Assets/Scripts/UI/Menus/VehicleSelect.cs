@@ -46,6 +46,7 @@ public class VehicleSelect : UIMenu
     private Dictionary<int, GameObject> vehicleForms = new Dictionary<int, GameObject>();
     private Dictionary<int, int> colorSelections = new Dictionary<int, int>();
     private Dictionary<int, AudioClip> selectionSounds = new Dictionary<int, AudioClip>();
+    private Dictionary<int, float> selectionSoundEndTimes = new Dictionary<int, float>();
 
     private VehicleSelectStats minStats;
     private VehicleSelectStats maxStats;
@@ -121,6 +122,32 @@ public class VehicleSelect : UIMenu
         return false;
     }
 
+    private AudioClip GetSelectionSound(int index)
+    {
+        if (!selectionSounds.TryGetValue(index, out var clip))
+        {
+            string selectName = $"{VehicleList.Vehicles[index].BaseName}_select";
+            clip = AudioAssetManager.LoadClip(selectName);
+            selectionSounds[index] = clip; // cache nulls too, so we don't retry the load
+        }
+        return clip;
+    }
+
+    private void PlaySelectionSound(int index)
+    {
+        if (MenuManager.Instance == null) return;
+
+        var clip = GetSelectionSound(index);
+        if (clip == null) return;
+
+        // this vehicle's clip is still playing from an earlier selection - don't stack it
+        if (selectionSoundEndTimes.TryGetValue(index, out float endTime) && Time.unscaledTime < endTime)
+            return;
+
+        MenuManager.Instance.PlaySound(clip);
+        selectionSoundEndTimes[index] = Time.unscaledTime + clip.length;
+    }
+
     private void SetPick(string basename, int variant, bool alwaysPlaySelectSound = false)
     {
         int index = VehicleList.Find(basename);
@@ -137,24 +164,7 @@ public class VehicleSelect : UIMenu
         // play selection sound if the pick index is different from last
         if (currentPickVehicleIndex != index || alwaysPlaySelectSound)
         {
-            if (selectionSounds.TryGetValue(index, out var selectAudio))
-            {
-                if (selectAudio != null && MenuManager.Instance != null)
-                {
-                    MenuManager.Instance.PlaySound(selectAudio);
-                }
-            }
-            else
-            {
-                basename = info.BaseName;
-                string selectName = $"{basename}_select";
-                selectAudio = AudioAssetManager.LoadClip(selectName);
-                if (selectAudio != null && MenuManager.Instance != null)
-                {
-                    MenuManager.Instance.PlaySound(selectAudio);
-                }
-                selectionSounds[index] = selectAudio;
-            }
+            PlaySelectionSound(index);
         }
 
         // setup pick vars
