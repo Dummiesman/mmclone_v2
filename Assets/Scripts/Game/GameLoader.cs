@@ -81,8 +81,11 @@ public class GameLoader : MonoBehaviour
 
     private IEnumerator Start()
     {
-        // mute audio during loading
+        // mute audio during loading, and freeze everything
         MMAudioMixer.Mute();
+        Physics.simulationMode = SimulationMode.Script;
+        Time.timeScale = 0.0f;
+
         yield return null;
 
         foreach (float p in game.Load())
@@ -104,10 +107,12 @@ public class GameLoader : MonoBehaviour
             loadingScreenTexture = null;
         }
 
-        // done, unmute audio and go
+        // done, unmute audio and unfreeze
         MMAudioMixer.Unmute();
+        Physics.SyncTransforms();
+        Physics.simulationMode = SimulationMode.FixedUpdate;
+        Time.timeScale = 1.0f;
         Destroy(gameObject);
-
     }
 
     private static Rect GetLetterboxedOrPillarboxedRect(float targetAspect = 4f / 3f)
