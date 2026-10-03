@@ -80,20 +80,38 @@ public class SimpleForm : MonoBehaviour
         using (var stream = AssetManager.Open("geometry", $"{basename}.pkg"))
         {
             var packageFile = new PackageFile(stream);
+            bool haveFirst = false;
 
-            // First object in the package
-            string firstName = packageFile.CurrentFileName;
-            var file = packageFile.OpenFile(firstName);
-            var loader = new PackageModelLoader(firstName, file);
-            mesh = loader.Load(out materialMap);
-            packageFile.CloseFile();
+            while(packageFile.CurrentFileName != "shaders")
+            {
+                string currentName = packageFile.CurrentFileName;
+                if (!haveFirst)
+                {
+                    // First object in the package
+                    var file = packageFile.OpenFile(currentName);
+                    var loader = new PackageModelLoader(currentName, file);
+                    mesh = loader.Load(out materialMap);
+                    packageFile.CloseFile();
+                    haveFirst = true;
+                }
+                else
+                {
+                    // Other objects, skip with model loader in case of PKG2
+                    var file = packageFile.OpenFile(currentName);
+                    var loader = new PackageModelLoader(currentName, file);
+                    loader.Skip();
+                    packageFile.CloseFile();
+                }
+            }
 
             // Shaders
-            packageFile.SkipTo("shaders");
-            var reader = packageFile.OpenFile("shaders");
-            shaders = new ShaderSet();
-            shaders.LoadSafe(reader);
-            packageFile.CloseFile();
+            if (packageFile.CurrentFileName == "shaders")
+            {
+                var reader = packageFile.OpenFile("shaders");
+                shaders = new ShaderSet();
+                shaders.LoadSafe(reader);
+                packageFile.CloseFile();
+            }
         }
 
         obj = new GameObject(mesh.name);
