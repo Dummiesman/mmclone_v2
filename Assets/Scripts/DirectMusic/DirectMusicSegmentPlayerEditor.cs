@@ -80,7 +80,10 @@ namespace DirectMusicLite
         {
             _playing = player.IsPlaying;
             DmPattern pattern = player.CurrentPattern;
-            _patternName = pattern != null ? (pattern.Name ?? "<unnamed>") : "-";
+            // A sequence-only segment composes nothing, so there is no pattern to
+            // name. Saying so beats a bare dash, which reads as something failing.
+            _patternName = pattern != null ? (pattern.Name ?? "<unnamed>")
+                         : (player.IsSequenceOnly ? "sequence track" : "-");
             _measure = player.CurrentMeasure;
             _tempo = player.CurrentTempo;
             _voices = player.ActiveVoiceCount;

@@ -87,6 +87,11 @@ namespace DirectMusicLite
         [Tooltip("Render controller curves authored in style parts - pan moves, volume " +
                  "swells, pitch bends. Turn off to hear the notes without them.")]
         public bool renderCurves = true;
+        [Tooltip("Play the segment's sequence track: MIDI events placed on the segment's " +
+                 "own timeline rather than composed by the style. A segment imported from " +
+                 "a MIDI file is entirely this, and plays with no style loaded. Takes " +
+                 "effect at the next Play().")]
+        public bool renderSequenceTracks = true;
         [Tooltip("Semitone offset applied after music values resolve. Use -12 or +12 if " +
                  "everything is an octave out.")]
         public int transpose;
@@ -113,6 +118,12 @@ namespace DirectMusicLite
 
         /// <summary>The pattern currently playing — useful for debugging groove mappings.</summary>
         public DmPattern CurrentPattern { get { return _performance != null ? _performance.CurrentPattern : null; } }
+
+        /// <summary>True when the loaded segment has a sequence track this will play.</summary>
+        public bool HasSequence { get { return _performance != null && _performance.HasSequence; } }
+
+        /// <summary>True when the sequence track is the music: no style, nothing composed.</summary>
+        public bool IsSequenceOnly { get { return _performance != null && _performance.IsSequenceOnly; } }
 
         /// <summary>Number of synth channels, for iterating meters.</summary>
         public int SynthChannelCount { get { return _synth != null ? _synth.ChannelCount : 0; } }
@@ -253,6 +264,7 @@ namespace DirectMusicLite
             _performance.IgnoreBankSelect = ignoreBankSelect;
             _performance.RespectSegmentLoop = respectSegmentLoop;
             _performance.RenderCurves = renderCurves;
+            _performance.RenderSequenceTracks = renderSequenceTracks;
             _performance.ApplyPartInversion = applyPartInversion;
             _performance.MusicValueMode = musicValueMode;
             _performance.OctaveOffset = octaveOffset;
@@ -320,6 +332,7 @@ namespace DirectMusicLite
             _performance.Transpose = transpose;
             _performance.RespectSegmentLoop = respectSegmentLoop;
             _performance.RenderCurves = renderCurves;
+            _performance.RenderSequenceTracks = renderSequenceTracks;
             _performance.ApplyPartInversion = applyPartInversion;
             _performance.MusicValueMode = musicValueMode;
             _performance.OctaveOffset = octaveOffset;
@@ -402,7 +415,20 @@ namespace DirectMusicLite
                                  "Load it with LoadStyle(), or give the resolver a " +
                                  "ResolveStyle. Call DumpStyleResolution() for detail.");
 
-            if (segment.Chords.Count == 0)
+            if (segment.HasSequence)
+                Debug.Log("DirectMusicLite: segment has " + segment.SequenceTrackCount +
+                          " sequence track(s): " + segment.SequenceEvents.Count + " events on PChannels " +
+                          string.Join(", ", segment.SequencePChannels().ConvertAll(
+                              delegate (int c) { return c.ToString(); }).ToArray()) +
+                          (Style == null && segment.StyleReferences.Count == 0
+                              ? ". No style is involved; these events are the music."
+                              : ", playing alongside the style."));
+
+            // Only a style resolves notes against chords. A segment whose music is a
+            // sequence track has literal MIDI notes and no use for a chord track, so
+            // warning about a missing one would be noise on every MIDI import.
+            bool needsChords = segment.StyleReferences.Count > 0 || Style != null || !segment.HasSequence;
+            if (segment.Chords.Count == 0 && needsChords)
                 Debug.LogWarning("DirectMusicLite: segment has no chord track. Chord-relative style notes " +
                                  "will resolve against DefaultChord (C major), so anything the content " +
                                  "reharmonised will play in the wrong key. Call DumpNoteResolution().");
@@ -730,7 +756,19 @@ namespace DirectMusicLite
         bool CanPlay()
         {
             if (_performance.Style != null) return true;
-            Debug.LogWarning("DirectMusicLite: no style loaded — nothing to play. " +
+
+            // A sequence track is playable on its own: its events are already notes on a
+            // timeline, so there is nothing for a style to compose.
+            if (_performance.HasSequence) return true;
+
+            if (Segment != null && Segment.HasSequence && !renderSequenceTracks)
+            {
+                Debug.LogWarning("DirectMusicLite: the segment's only music is its sequence track, " +
+                                 "and renderSequenceTracks is off — nothing to play.");
+                return false;
+            }
+
+            Debug.LogWarning("DirectMusicLite: no style loaded and no sequence track — nothing to play. " +
                              "A segment alone only supplies groove commands, chords and the band.");
             return false;
         }

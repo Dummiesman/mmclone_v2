@@ -76,6 +76,32 @@ namespace DirectMusicLite
     }
 
     /// <summary>
+    /// Shared by the curves authored in style parts and the ones on a segment's
+    /// sequence track. The two differ in how they're positioned in time, not in how
+    /// they sweep, so the shape maths lives here rather than in both.
+    /// </summary>
+    public static class DmCurveMath
+    {
+        /// <summary>Value at a fraction 0..1 through a curve of the given shape.</summary>
+        public static float Evaluate(DmCurveShape shape, int startValue, int endValue, float t)
+        {
+            if (t <= 0f) return startValue;
+            if (t >= 1f) return endValue;
+
+            float shaped;
+            switch (shape)
+            {
+                case DmCurveShape.Instant: shaped = 1f; break;
+                case DmCurveShape.Exponential: shaped = t * t; break;
+                case DmCurveShape.Logarithmic: shaped = (float)Math.Sqrt(t); break;
+                case DmCurveShape.Sine: shaped = (float)(0.5 - 0.5 * Math.Cos(Math.PI * t)); break;
+                default: shaped = t; break;
+            }
+            return startValue + (endValue - startValue) * shaped;
+        }
+    }
+
+    /// <summary>
     /// A controller sweep authored in a style part: volume swells, pan moves, pitch
     /// bends. Panning that alternates between speakers is usually one of these rather
     /// than anything in the band.
@@ -105,19 +131,7 @@ namespace DirectMusicLite
         /// <summary>Value at a fraction 0..1 through the curve.</summary>
         public float ValueAt(float t)
         {
-            if (t <= 0f) return StartValue;
-            if (t >= 1f) return EndValue;
-
-            float shaped;
-            switch (Shape)
-            {
-                case DmCurveShape.Instant: shaped = 1f; break;
-                case DmCurveShape.Exponential: shaped = t * t; break;
-                case DmCurveShape.Logarithmic: shaped = (float)Math.Sqrt(t); break;
-                case DmCurveShape.Sine: shaped = (float)(0.5 - 0.5 * Math.Cos(Math.PI * t)); break;
-                default: shaped = t; break;
-            }
-            return StartValue + (EndValue - StartValue) * shaped;
+            return DmCurveMath.Evaluate(Shape, StartValue, EndValue, t);
         }
 
         public override string ToString()

@@ -190,6 +190,14 @@ namespace DirectMusicLite
         readonly List<ScheduledNote> _carryOver = new List<ScheduledNote>();
         int _eventIndex;
 
+        // The sequence track is a second, independent event stream. It isn't merged into
+        // _scheduled because that list is rebuilt from scratch at every pattern boundary,
+        // while the sequence belongs to the whole segment and has to survive them.
+        readonly List<ScheduledNote> _sequence = new List<ScheduledNote>();
+        int _sequenceIndex;
+        int _sequenceEndTick;
+        DmBandEvent _appliedBand;
+
         readonly Dictionary<int, int> _pchannelToMidi = new Dictionary<int, int>();
         readonly Dictionary<int, DmBandInstrument> _channelInstrument = new Dictionary<int, DmBandInstrument>();
         readonly Dictionary<int, DmBandInstrument> _overrides = new Dictionary<int, DmBandInstrument>();
@@ -224,6 +232,32 @@ namespace DirectMusicLite
         /// pitch bends). Turn off to hear the notes without them.
         /// </summary>
         public bool RenderCurves = true;
+
+        /// <summary>
+        /// Play the segment's sequence track: literal MIDI events on the segment's own
+        /// timeline, alongside whatever the style composes. Turn off to hear only the
+        /// style. Takes effect at the next Start.
+        /// </summary>
+        public bool RenderSequenceTracks = true;
+
+        /// <summary>True when there is a style with patterns to compose from.</summary>
+        public bool HasPatterns { get { return Style != null && Style.Patterns.Count > 0; } }
+
+        /// <summary>True when the loaded segment carries sequence events this will play.</summary>
+        public bool HasSequence
+        {
+            get { return RenderSequenceTracks && Segment != null && Segment.HasSequence; }
+        }
+
+        /// <summary>
+        /// True when the sequence track is the only thing playing: a segment imported
+        /// from a MIDI file, or any segment played without its style. There are no
+        /// patterns to advance, so the clock is stepped a measure at a time instead.
+        /// </summary>
+        public bool IsSequenceOnly { get { return !HasPatterns && _sequence.Count > 0; } }
+
+        /// <summary>Sequence events expanded for playback: note-ons, note-offs and controllers.</summary>
+        public int SequenceEventCount { get { return _sequence.Count; } }
 
         /// <summary>
         /// Fold resolved notes back into the register a style part declares with
@@ -269,14 +303,14 @@ namespace DirectMusicLite
         readonly Dictionary<long, int> _measureVariation = new Dictionary<long, int>();
         int _nextMidiChannel;
 
-        enum ScheduledKind { NoteOn, NoteOff, Controller, PitchBend }
+        enum ScheduledKind { NoteOn, NoteOff, Controller, PitchBend, ProgramChange }
 
         struct ScheduledNote
         {
             public int Tick;
             public ScheduledKind Kind;
             public byte Channel, Note, Velocity;
-            public int Value;            // controller value, or 14-bit pitch bend
+            public int Value;            // controller value, 14-bit pitch bend, or program
 
             public bool On { get { return Kind == ScheduledKind.NoteOn; } }
         }
@@ -320,7 +354,9 @@ namespace DirectMusicLite
 
         public void StartAt(int startTick)
         {
-            if (Style == null || Style.Patterns.Count == 0) return;
+            // A segment whose music is a sequence track needs no style at all, so the
+            // requirement is that something can play, not that a style is loaded.
+            if (!HasPatterns && !HasSequence) return;
             if (startTick < 0) startTick = 0;
 
             _musicTime = startTick;
@@ -350,16 +386,29 @@ namespace DirectMusicLite
             _pchannelVariation.Clear();
             _partOrder.Clear();
             _nextMidiChannel = 0;
+            _appliedBand = null;
             ChannelsExhausted = false;
 
-            // Read the segment's tracks at the start tick, not at zero.
-            _bpm = Segment != null && Segment.Tempos.Count > 0 ? Segment.TempoAt(startTick) : Style.Tempo;
-            _timeSig = Segment != null && Segment.TimeSignatures.Count > 0
-                ? Segment.TimeSigAt(startTick) : Style.TimeSig;
+            // Read the segment's tracks at the start tick, not at zero. The style is the
+            // fallback for both, and a sequence-only segment has none — then it's the
+            // segment's own tracks or the defaults.
+            if (Segment != null && Segment.Tempos.Count > 0) _bpm = Segment.TempoAt(startTick);
+            else if (Style != null && Style.Tempo > 1.0) _bpm = Style.Tempo;
+            else _bpm = 120.0;
+
+            if (Segment != null && Segment.TimeSignatures.Count > 0) _timeSig = Segment.TimeSigAt(startTick);
+            else if (Style != null) _timeSig = Style.TimeSig;
+            else _timeSig = DmTimeSig.Default;
             if (!_timeSig.IsValid) _timeSig = DmTimeSig.Default;
 
             SeekCommands(startTick);
             ApplyBand(startTick);
+
+            // After the band: its PChannels claim their synth channels first, so a
+            // sequence event sharing a PChannel lands on the band's instrument.
+            BuildSequence();
+            SeekSequence(startTick);
+
             _hasStarted = true;
             _hasExpanded = false;
             _playing = true;
@@ -371,6 +420,7 @@ namespace DirectMusicLite
             _scheduled.Clear();
             _carryOver.Clear();
             _eventIndex = 0;
+            _sequenceIndex = _sequence.Count;
             _synth.AllNotesOff();
         }
 
@@ -472,7 +522,7 @@ namespace DirectMusicLite
 
         public void Render(float[] buffer, int offset, int frames, int channels)
         {
-            if (!_playing || Style == null)
+            if (!_playing || (Style == null && _sequence.Count == 0))
             {
                 _synth.Render(buffer, offset, frames, channels);
                 return;
@@ -499,16 +549,40 @@ namespace DirectMusicLite
                     continue;
                 }
 
-                if (_pattern != null && now >= _nextMeasureTick && _nextMeasureTick < _patternEndTick)
+                if (HasPatterns)
                 {
-                    HandleMeasureBoundary(_nextMeasureTick);
-                    continue;
-                }
+                    if (_pattern != null && now >= _nextMeasureTick && _nextMeasureTick < _patternEndTick)
+                    {
+                        HandleMeasureBoundary(_nextMeasureTick);
+                        continue;
+                    }
 
-                if (_pattern == null || now >= _patternEndTick)
+                    if (_pattern == null || now >= _patternEndTick)
+                    {
+                        if (!AdvancePattern(now)) { _synth.Render(buffer, offset + done * channels, frames - done, channels); done = frames; break; }
+                        continue;
+                    }
+                }
+                else
                 {
-                    if (!AdvancePattern(now)) { _synth.Render(buffer, offset + done * channels, frames - done, channels); done = frames; break; }
-                    continue;
+                    // Sequence only. Nothing composes measures here, so the clock is
+                    // stepped a measure at a time to keep the tempo, time signature,
+                    // band and command tracks being read as playback passes them.
+                    if (now >= _nextMeasureTick)
+                    {
+                        HandleSequenceMeasure(_nextMeasureTick);
+                        continue;
+                    }
+
+                    // A segment with no loop points to stop it ends when its sequence
+                    // does; without this a MIDI import that left mtLength at 0 would
+                    // play its events and then run on in silence forever.
+                    bool loopEnds = RespectSegmentLoop && Segment != null && Segment.HasLoopPoints;
+                    if (!loopEnds && _sequenceIndex >= _sequence.Count && now >= _sequenceEndTick)
+                    {
+                        if (!HandleSegmentEnd(done, ticksPerFrame)) break;
+                        continue;
+                    }
                 }
 
                 if (_eventIndex < _scheduled.Count && _scheduled[_eventIndex].Tick <= now)
@@ -518,13 +592,24 @@ namespace DirectMusicLite
                     continue;
                 }
 
-                double nextTick = _patternEndTick;
+                if (_sequenceIndex < _sequence.Count && _sequence[_sequenceIndex].Tick <= now)
+                {
+                    Fire(_sequence[_sequenceIndex]);
+                    _sequenceIndex++;
+                    continue;
+                }
+
+                double nextTick = HasPatterns ? _patternEndTick : _nextMeasureTick;
                 if (_nextMeasureTick > now && _nextMeasureTick < nextTick) nextTick = _nextMeasureTick;
                 if (_eventIndex < _scheduled.Count && _scheduled[_eventIndex].Tick < nextTick)
                     nextTick = _scheduled[_eventIndex].Tick;
+                if (_sequenceIndex < _sequence.Count && _sequence[_sequenceIndex].Tick < nextTick)
+                    nextTick = _sequence[_sequenceIndex].Tick;
                 if (HasPendingSegment && _switchTick < nextTick) nextTick = _switchTick;
                 if (RespectSegmentLoop && Segment != null && Segment.HasLoopPoints &&
                     Segment.ResolvedLoopEnd < nextTick) nextTick = Segment.ResolvedLoopEnd;
+                if (!HasPatterns && _sequenceIndex >= _sequence.Count &&
+                    _sequenceEndTick > now && _sequenceEndTick < nextTick) nextTick = _sequenceEndTick;
 
                 int framesUntil = (int)Math.Ceiling((nextTick - now) / ticksPerFrame);
                 if (framesUntil < 1) framesUntil = 1;
@@ -556,6 +641,7 @@ namespace DirectMusicLite
                 case ScheduledKind.NoteOff: _synth.NoteOff(e.Channel, e.Note); break;
                 case ScheduledKind.Controller: _synth.ControlChange(e.Channel, e.Note, e.Value); break;
                 case ScheduledKind.PitchBend: _synth.PitchBend(e.Channel, e.Value); break;
+                case ScheduledKind.ProgramChange: _synth.ProgramChange(e.Channel, e.Value); break;
             }
         }
 
@@ -598,6 +684,7 @@ namespace DirectMusicLite
             double bpm = Segment.TempoAt(loopStart);
             if (bpm > 1.0) _bpm = bpm;
             ApplyBand(loopStart);
+            SeekSequence(loopStart);
             return true;
         }
 
@@ -643,6 +730,9 @@ namespace DirectMusicLite
             _scheduled.Clear();
             _carryOver.Clear();
             _eventIndex = 0;
+            // The outgoing segment's sequence stops here too, whether the switch happens
+            // now or after a composed transition bar.
+            _sequenceIndex = _sequence.Count;
             if (!overlap) _synth.AllNotesOff();
 
             // A transition measure from the outgoing style, chosen by destination groove.
@@ -755,6 +845,12 @@ namespace DirectMusicLite
             _pending = DmEmbellishment.Normal;
             _stopAfterPattern = false;
 
+            // The sequence belongs to the segment, so the incoming one replaces it
+            // outright. A segment without one clears it, which is what stops the
+            // outgoing segment's events from playing on over the new one.
+            BuildSequence();
+            SeekSequence(tick);
+
             if (SegmentSwitched != null) SegmentSwitched();
         }
 
@@ -780,6 +876,40 @@ namespace DirectMusicLite
             int measureTicks = CurrentMeasureTicks();
             _nextMeasureTick = tick + measureTicks;
             if (_nextMeasureTick > _patternEndTick) _nextMeasureTick = _patternEndTick;
+        }
+
+        /// <summary>
+        /// A measure line during sequence-only playback. There is no pattern to choose,
+        /// so this does the part of a pattern boundary that still applies: it reads the
+        /// segment's tempo, time signature, band and command tracks as they go by.
+        ///
+        /// Tempo lands on the measure rather than exactly where it was authored, which
+        /// is the same resolution style playback has always used.
+        /// </summary>
+        void HandleSequenceMeasure(int tick)
+        {
+            if (FollowSegmentCommands) ApplyDueCommands(tick);
+
+            if (Segment != null)
+            {
+                double bpm = Segment.TempoAt(tick);
+                if (bpm > 1.0) _bpm = bpm;
+                DmTimeSig ts = Segment.TimeSigAt(tick);
+                if (ts.IsValid) _timeSig = ts;
+
+                // Only when the band in effect actually changes: a sequence segment can
+                // run for hundreds of measures, and re-sending one band's programs on
+                // every bar line reloads instruments for nothing.
+                DmBandEvent band = BandAt(tick);
+                if (band != null && band != _appliedBand) ApplyBand(band);
+            }
+
+            // The first call lands on the start tick itself, which is measure 0.
+            if (tick > _patternStartTick) _measure++;
+
+            int step = _timeSig.IsValid ? _timeSig.TicksPerMeasure : DmRiff.TicksPerMeasure(4, 4);
+            if (step < 1) step = DmRiff.TicksPerMeasure(4, 4);
+            _nextMeasureTick = tick + step;
         }
 
         int CurrentMeasureTicks()
@@ -1002,14 +1132,227 @@ namespace DirectMusicLite
                 }
             }
 
-            _scheduled.Sort(delegate (ScheduledNote a, ScheduledNote b)
+            // At equal times: note-offs, then controllers, then note-ons. A pan or
+            // volume move has to be in place before the note it applies to starts.
+            SortEvents(_scheduled);
+        }
+
+        // ---------------------------------------------------- sequence track
+
+        /// <summary>
+        /// Expands the segment's sequence track into scheduled events, once, for the
+        /// whole segment. Unlike a pattern this isn't rebuilt as playback moves: the
+        /// events are already absolute, and there is nothing to choose between.
+        ///
+        /// Channels are allocated through the same PChannel map the band and the style's
+        /// parts use, so a sequence event and a band entry naming the same PChannel land
+        /// on the same synth channel and the sequence plays the instrument the band
+        /// assigned. Call this after ApplyBand so the band's PChannels are allocated first.
+        /// </summary>
+        void BuildSequence()
+        {
+            _sequence.Clear();
+            _sequenceIndex = 0;
+            _sequenceEndTick = 0;
+            if (!HasSequence) return;
+
+            List<DmSequenceEvent> events = Segment.SequenceEvents;
+            for (int i = 0; i < events.Count; i++)
             {
-                if (a.Tick != b.Tick) return a.Tick < b.Tick ? -1 : 1;
-                // At equal times: note-offs, then controllers, then note-ons. A pan or
-                // volume move has to be in place before the note it applies to starts.
-                int ra = Rank(a.Kind), rb = Rank(b.Kind);
-                return ra == rb ? 0 : (ra < rb ? -1 : 1);
+                DmSequenceEvent e = events[i];
+                int channel = AllocateChannel(e.PChannel);
+
+                switch (e.Command)
+                {
+                    case 0x90:
+                        if (e.Byte2 > 0)
+                        {
+                            // mtDuration is the note length: a sequence track holds one
+                            // event per note rather than a note-on/note-off pair, so the
+                            // release has to be scheduled here or the note never stops.
+                            int onTick = e.PlayTime;
+                            int offTick = onTick + Math.Max(1, e.Duration);
+                            AddSequenceEvent(ScheduledKind.NoteOn, onTick, channel, e.Byte1 & 0x7F, e.Byte2 & 0x7F, 0);
+                            AddSequenceEvent(ScheduledKind.NoteOff, offTick, channel, e.Byte1 & 0x7F, 0, 0);
+                        }
+                        else
+                        {
+                            AddSequenceEvent(ScheduledKind.NoteOff, e.PlayTime, channel, e.Byte1 & 0x7F, 0, 0);
+                        }
+                        break;
+
+                    case 0x80:
+                        AddSequenceEvent(ScheduledKind.NoteOff, e.PlayTime, channel, e.Byte1 & 0x7F, 0, 0);
+                        break;
+
+                    case 0xB0:
+                        AddSequenceEvent(ScheduledKind.Controller, e.PlayTime, channel, e.Byte1 & 0x7F, 0, e.Byte2 & 0x7F);
+                        break;
+
+                    case 0xC0:
+                        AddSequenceEvent(ScheduledKind.ProgramChange, e.PlayTime, channel, 0, 0, e.Byte1 & 0x7F);
+                        break;
+
+                    case 0xE0:
+                        AddSequenceEvent(ScheduledKind.PitchBend, e.PlayTime, channel, 0, 0, Clamp(e.BendValue, 0, 16383));
+                        break;
+
+                    // 0xA0 and 0xD0 are aftertouch, which the synth has no response to.
+                    // Dropping them silently is better than sending them somewhere they
+                    // would be misread as a different message.
+                }
+            }
+
+            if (RenderCurves)
+            {
+                List<DmSequenceCurve> curves = Segment.SequenceCurves;
+                for (int i = 0; i < curves.Count; i++)
+                    ExpandSequenceCurve(curves[i]);
+            }
+
+            SortEvents(_sequence);
+
+            for (int i = 0; i < _sequence.Count; i++)
+                if (_sequence[i].Tick > _sequenceEndTick) _sequenceEndTick = _sequence[i].Tick;
+
+            // Label the channels so the editor and DescribeChannelMap can say what is
+            // coming out of them. Pattern expansion overwrites this with the part name
+            // where a style part shares the PChannel, which is the better label.
+            List<int> pchannels = Segment.SequencePChannels();
+            for (int i = 0; i < pchannels.Count; i++)
+            {
+                if (_pchannelParts.ContainsKey(pchannels[i])) continue;
+                _pchannelParts[pchannels[i]] = "sequence track";
+                _pchannelPartDetail[pchannels[i]] = CountSequenceEvents(pchannels[i]) + " events";
+            }
+        }
+
+        int CountSequenceEvents(int pchannel)
+        {
+            int count = 0;
+            List<DmSequenceEvent> events = Segment.SequenceEvents;
+            for (int i = 0; i < events.Count; i++)
+                if (events[i].PChannel == pchannel) count++;
+            return count;
+        }
+
+        void AddSequenceEvent(ScheduledKind kind, int tick, int channel, int note, int velocity, int value)
+        {
+            ScheduledNote e = new ScheduledNote();
+            e.Tick = tick < 0 ? 0 : tick;
+            e.Kind = kind;
+            e.Channel = (byte)channel;
+            e.Note = (byte)note;
+            e.Velocity = (byte)velocity;
+            e.Value = value;
+            _sequence.Add(e);
+        }
+
+        /// <summary>
+        /// Samples one sequence curve into discrete controller events, the same way style
+        /// curves are sampled, but positioned in absolute MUSIC_TIME against a PChannel.
+        /// </summary>
+        void ExpandSequenceCurve(DmSequenceCurve curve)
+        {
+            bool isPitchBend = curve.Type == DmCurveType.PitchBend;
+            if (!isPitchBend && curve.Type != DmCurveType.ControlChange) return;
+
+            int channel = AllocateChannel(curve.PChannel);
+            int begin = curve.PlayTime;
+            int duration = Math.Max(0, curve.Duration);
+
+            int steps = 1;
+            if (duration > 0 && curve.Shape != DmCurveShape.Instant)
+            {
+                steps = duration / CurveStepTicks;
+                if (steps < 1) steps = 1;
+                if (steps > MaxCurveSteps) steps = MaxCurveSteps;
+            }
+
+            for (int step = 0; step <= steps; step++)
+            {
+                float t = steps > 0 ? step / (float)steps : 1f;
+                int tick = begin + (int)(duration * t);
+                float value = curve.ValueAt(t);
+
+                if (isPitchBend)
+                {
+                    bool signedOffset = curve.StartValue < 0 || curve.EndValue < 0;
+                    AddSequenceEvent(ScheduledKind.PitchBend, tick, channel, 0, 0,
+                                     Clamp((int)value + (signedOffset ? 8192 : 0), 0, 16383));
+                }
+                else
+                {
+                    AddSequenceEvent(ScheduledKind.Controller, tick, channel,
+                                     curve.ControllerNumber & 0x7F, 0, Clamp((int)value, 0, 127));
+                }
+
+                if (steps == 1 && curve.Shape == DmCurveShape.Instant) break;
+            }
+
+            if (!curve.ResetsAfterwards) return;
+
+            int resetTick = begin + duration + Math.Max(0, curve.ResetDuration);
+            if (isPitchBend)
+            {
+                bool signedOffset = curve.ResetValue < 0 || curve.EndValue < 0;
+                AddSequenceEvent(ScheduledKind.PitchBend, resetTick, channel, 0, 0,
+                                 Clamp(curve.ResetValue + (signedOffset ? 8192 : 0), 0, 16383));
+            }
+            else
+            {
+                AddSequenceEvent(ScheduledKind.Controller, resetTick, channel,
+                                 curve.ControllerNumber & 0x7F, 0, Clamp(curve.ResetValue, 0, 127));
+            }
+        }
+
+        /// <summary>
+        /// Moves the sequence cursor to a tick. Everything before it that set channel
+        /// state — controllers, program changes, pitch bend — is applied on the way past,
+        /// so starting in the middle of a segment finds the channels as the sequence had
+        /// left them rather than at their defaults. Notes before the start are skipped:
+        /// one that was already sounding at that point has no beginning to play.
+        /// </summary>
+        void SeekSequence(int tick)
+        {
+            _sequenceIndex = 0;
+            while (_sequenceIndex < _sequence.Count && _sequence[_sequenceIndex].Tick < tick)
+            {
+                ScheduledNote e = _sequence[_sequenceIndex];
+                if (e.Kind != ScheduledKind.NoteOn && e.Kind != ScheduledKind.NoteOff) Fire(e);
+                _sequenceIndex++;
+            }
+        }
+
+        /// <summary>
+        /// Orders events by tick, and at equal ticks by what has to happen first: a
+        /// release, then anything that sets up the channel, then the note that uses it.
+        ///
+        /// Stable, because events that tie on both are already in the order they have to
+        /// run in. A curve whose reset duration is 0 puts its reset on the same tick as
+        /// its final value, and an unstable sort is free to put the reset first — which
+        /// leaves the controller parked at the end of the sweep, the one thing the reset
+        /// exists to prevent.
+        /// </summary>
+        static void SortEvents(List<ScheduledNote> events)
+        {
+            int count = events.Count;
+            if (count < 2) return;
+
+            ScheduledNote[] items = events.ToArray();
+            int[] order = new int[count];
+            for (int i = 0; i < count; i++) order[i] = i;
+
+            Array.Sort(order, delegate (int a, int b)
+            {
+                ScheduledNote x = items[a], y = items[b];
+                if (x.Tick != y.Tick) return x.Tick < y.Tick ? -1 : 1;
+                int rx = Rank(x.Kind), ry = Rank(y.Kind);
+                if (rx != ry) return rx < ry ? -1 : 1;
+                return a < b ? -1 : 1;              // original order breaks the tie
             });
+
+            for (int i = 0; i < count; i++) events[i] = items[order[i]];
         }
 
         /// <summary>
@@ -1119,6 +1462,7 @@ namespace DirectMusicLite
                 case ScheduledKind.NoteOff: return 0;
                 case ScheduledKind.Controller: return 1;
                 case ScheduledKind.PitchBend: return 1;
+                case ScheduledKind.ProgramChange: return 1;
                 default: return 2;
             }
         }
@@ -1398,14 +1742,18 @@ namespace DirectMusicLite
                       | (drum ? 0x80000000u : 0u);
             ins.DlsReference = "(override)";
             _overrides[bandChannel] = ins;
+            // Sequence playback only re-sends a band when it changes, so an override
+            // arriving mid-segment has to ask for that band to be sent again.
+            _appliedBand = null;
         }
 
-        public void ClearInstrumentOverrides() { _overrides.Clear(); }
+        public void ClearInstrumentOverrides() { _overrides.Clear(); _appliedBand = null; }
 
-        void ApplyBand(int tick)
+        /// <summary>The band event in effect at a tick, or null if there are none.</summary>
+        DmBandEvent BandAt(int tick)
         {
             List<DmBandEvent> bands = ActiveBands;
-            if (bands == null || bands.Count == 0) return;
+            if (bands == null || bands.Count == 0) return null;
 
             DmBandEvent band = null;
             for (int i = 0; i < bands.Count; i++)
@@ -1413,7 +1761,18 @@ namespace DirectMusicLite
                 if (bands[i].Time > tick) break;
                 band = bands[i];
             }
-            if (band == null) band = bands[0];
+            return band != null ? band : bands[0];
+        }
+
+        void ApplyBand(int tick)
+        {
+            ApplyBand(BandAt(tick));
+        }
+
+        void ApplyBand(DmBandEvent band)
+        {
+            if (band == null) return;
+            _appliedBand = band;
 
             for (int i = 0; i < band.Instruments.Count; i++)
             {
@@ -1597,6 +1956,10 @@ namespace DirectMusicLite
             if (ChannelsExhausted)
                 sb.AppendLine("  WARNING: more PChannels than synth channels (" + _synth.ChannelCount +
                               "); some now share one and will overwrite each other's instrument.");
+            if (_sequence.Count > 0)
+                sb.AppendLine("  sequence track: " + _sequence.Count + " scheduled events" +
+                              (HasPatterns ? ", playing alongside the style"
+                                           : " — no style, so the sequence is the music"));
 
             int bandInstruments = 0;
             List<DmBandEvent> active = ActiveBands;

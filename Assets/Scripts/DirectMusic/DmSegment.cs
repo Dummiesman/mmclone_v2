@@ -7,6 +7,14 @@
 //   band track     — PChannel -> DLS instrument assignments
 //   tempo/timesig  — the clock
 //
+// And the one that doesn't go through a style at all:
+//   sequence track — literal MIDI events on the segment's own timeline
+//
+// A sequence track is what a segment imported from a MIDI file is made of, and what
+// Producer writes for anything hand-placed on the timeline rather than composed from
+// a pattern. Its events carry absolute MUSIC_TIME and a PChannel, so they need no
+// chord, groove or variation — only the band, to say which instrument a PChannel is.
+//
 // Tracks are dispatched on their data chunk id rather than the track class GUID,
 // because the GUIDs vary across DirectMusic versions and the chunk ids don't.
 //
@@ -177,6 +185,105 @@ namespace DirectMusicLite
         public readonly List<DmBandInstrument> Instruments = new List<DmBandInstrument>();
     }
 
+    /// <summary>
+    /// DMUS_IO_SEQ_ITEM — one event of a sequence track: a plain MIDI message placed at
+    /// an absolute point on the segment's timeline. No chord resolution, no variations,
+    /// no groove; what is authored is what plays.
+    ///
+    /// The channel nibble of <see cref="Status"/> is not the channel. DirectMusic routes
+    /// the event by <see cref="PChannel"/>, which the band maps to an instrument, exactly
+    /// as it does for style parts.
+    /// </summary>
+    public sealed class DmSequenceEvent
+    {
+        public int Time;              // MUSIC_TIME, the authored position
+        public int Duration;          // note length; 0 on everything that isn't a note
+        public int PChannel;
+
+        /// <summary>nOffset: how far from Time the event actually sounds, for feel.</summary>
+        public int Offset;
+
+        public byte Status;           // MIDI status byte, channel nibble unused
+        public byte Byte1, Byte2;
+
+        /// <summary>When the event sounds: its authored time plus its offset.</summary>
+        public int PlayTime { get { return Time + Offset; } }
+
+        /// <summary>Status with the channel nibble masked off: 0x90, 0xB0, 0xE0 and so on.</summary>
+        public int Command { get { return Status & 0xF0; } }
+
+        /// <summary>A note-on with velocity 0 is a note-off, as in a MIDI file.</summary>
+        public bool IsNoteOn { get { return Command == 0x90 && Byte2 > 0; } }
+        public bool IsNoteOff { get { return Command == 0x80 || (Command == 0x90 && Byte2 == 0); } }
+
+        /// <summary>14-bit pitch bend value, valid when Command is 0xE0.</summary>
+        public int BendValue { get { return Byte1 | (Byte2 << 7); } }
+
+        /// <summary>Last tick this event occupies — the note-off time, for a note.</summary>
+        public int EndTime { get { return PlayTime + (IsNoteOn ? Math.Max(1, Duration) : 0); } }
+
+        public override string ToString()
+        {
+            string what;
+            switch (Command)
+            {
+                case 0x80: what = "note off " + Byte1; break;
+                case 0x90: what = Byte2 == 0 ? "note off " + Byte1
+                                : "note " + Byte1 + " vel " + Byte2 + " len " + Duration; break;
+                case 0xA0: what = "poly aftertouch " + Byte1 + " = " + Byte2; break;
+                case 0xB0: what = "CC" + Byte1 + " = " + Byte2; break;
+                case 0xC0: what = "program " + Byte1; break;
+                case 0xD0: what = "channel aftertouch " + Byte1; break;
+                case 0xE0: what = "pitch bend " + BendValue; break;
+                default: what = "status 0x" + Status.ToString("X2"); break;
+            }
+            return "t" + PlayTime + " pch" + PChannel + ": " + what;
+        }
+    }
+
+    /// <summary>
+    /// DMUS_IO_CURVE_ITEM — a controller sweep on a sequence track. Same idea as the
+    /// curves authored inside style parts, but positioned in absolute MUSIC_TIME against
+    /// a PChannel rather than on a part's grid against a variation.
+    /// </summary>
+    public sealed class DmSequenceCurve
+    {
+        public int Time;              // MUSIC_TIME
+        public int Duration;
+        public int ResetDuration;
+        public int PChannel;
+        public int Offset;
+        public int StartValue;
+        public int EndValue;
+        public int ResetValue;
+        public DmCurveType Type = DmCurveType.ControlChange;
+        public DmCurveShape Shape = DmCurveShape.Linear;
+        public int ControllerNumber = 10;   // meaningful when Type is ControlChange
+        public int Flags;
+        /// <summary>DX8 additions; carried for completeness, not acted on.</summary>
+        public int ParamType, MergeIndex;
+
+        /// <summary>DMUS_CURVE_RESET: return the controller to ResetValue afterwards.</summary>
+        public bool ResetsAfterwards { get { return (Flags & 0x1) != 0; } }
+
+        public int PlayTime { get { return Time + Offset; } }
+        public int EndTime { get { return PlayTime + Math.Max(0, Duration); } }
+
+        /// <summary>Value at a fraction 0..1 through the curve.</summary>
+        public float ValueAt(float t)
+        {
+            return DmCurveMath.Evaluate(Shape, StartValue, EndValue, t);
+        }
+
+        public override string ToString()
+        {
+            string what = Type == DmCurveType.ControlChange ? "CC" + ControllerNumber : Type.ToString();
+            return string.Format("t{0} pch{1}: {2} {3} {4}->{5} over {6} ticks{7}",
+                PlayTime, PChannel, what, Shape, StartValue, EndValue, Duration,
+                ResetsAfterwards ? " then reset to " + ResetValue : "");
+        }
+    }
+
     public sealed class DmSegment
     {
         public string Name;
@@ -217,6 +324,58 @@ namespace DirectMusicLite
         public readonly List<DmStyleRef> StyleReferences = new List<DmStyleRef>();
         public readonly List<DmBandEvent> Bands = new List<DmBandEvent>();
 
+        /// <summary>
+        /// Sequence track events, merged across every sequence track in the segment and
+        /// ordered by play time. They address instruments by PChannel, the same way the
+        /// band and the style's parts do, so several tracks sharing a PChannel are just
+        /// one stream of events to that instrument.
+        /// </summary>
+        public readonly List<DmSequenceEvent> SequenceEvents = new List<DmSequenceEvent>();
+
+        /// <summary>Controller sweeps from the sequence tracks' 'curl' chunks.</summary>
+        public readonly List<DmSequenceCurve> SequenceCurves = new List<DmSequenceCurve>();
+
+        /// <summary>How many sequence tracks contributed to the lists above.</summary>
+        public int SequenceTrackCount;
+
+        public bool HasSequence { get { return SequenceEvents.Count > 0 || SequenceCurves.Count > 0; } }
+
+        /// <summary>
+        /// Last tick the sequence occupies, note tails included. A segment imported from
+        /// a MIDI file often leaves mtLength at 0, and then this is the only thing that
+        /// says when the music is over.
+        /// </summary>
+        public int SequenceEndTick
+        {
+            get
+            {
+                int last = 0;
+                for (int i = 0; i < SequenceEvents.Count; i++)
+                {
+                    int t = SequenceEvents[i].EndTime;
+                    if (t > last) last = t;
+                }
+                for (int i = 0; i < SequenceCurves.Count; i++)
+                {
+                    int t = SequenceCurves[i].EndTime + Math.Max(0, SequenceCurves[i].ResetDuration);
+                    if (t > last) last = t;
+                }
+                return last;
+            }
+        }
+
+        /// <summary>Distinct PChannels the sequence addresses, in ascending order.</summary>
+        public List<int> SequencePChannels()
+        {
+            List<int> channels = new List<int>();
+            for (int i = 0; i < SequenceEvents.Count; i++)
+                if (!channels.Contains(SequenceEvents[i].PChannel)) channels.Add(SequenceEvents[i].PChannel);
+            for (int i = 0; i < SequenceCurves.Count; i++)
+                if (!channels.Contains(SequenceCurves[i].PChannel)) channels.Add(SequenceCurves[i].PChannel);
+            channels.Sort();
+            return channels;
+        }
+
         /// <summary>Chunks this reader did not interpret. Check this against real content.</summary>
         public readonly List<string> UnclaimedChunks = new List<string>();
 
@@ -245,6 +404,7 @@ namespace DirectMusicLite
             long end = Math.Min(ms.Length, 8L + size);
             DmRiff.Walk(r, ms, end, "DMSG", seg.UnclaimedChunks,
                 delegate (string id, string listType, long ds, long de) { return seg.OnTop(r, ms, id, listType, ds, de); });
+            seg.SortSequence();
             return seg;
         }
 
@@ -283,6 +443,10 @@ namespace DirectMusicLite
 
         void ReadTrack(BinaryReader r, Stream s, long start, long end)
         {
+            // One track counts once however its sequence chunks are wrapped: a 'seqt'
+            // list, or a bare 'evtl' and 'curl' pair.
+            bool[] countedSequence = new bool[1];
+
             DmRiff.Walk(r, s, end, "DMSG/trkl/DMTK", UnclaimedChunks,
                 delegate (string id, string listType, long ds, long de)
                 {
@@ -293,6 +457,19 @@ namespace DirectMusicLite
                         case "cmnd": ReadCommands(r, de); return true;
                         case "tetr": ReadTempos(r, de); return true;
                         case "tims": ReadTimeSignatures(r, de); return true;
+
+                        // 'seqt' holds the sequence track's chunks. The format documents
+                        // it as a LIST, and that case is handled below, but what Producer
+                        // actually writes — in both .sgt and .sgp — is a plain chunk whose
+                        // payload is the same 'evtl' and 'curl' pair. Treating only the
+                        // documented spelling as a sequence track means every real file
+                        // lands in the unclaimed list instead of playing.
+                        case "seqt": CountSequenceTrack(countedSequence); ReadSequenceTrack(r, s, de); return true;
+
+                        // And the ids inside it are unambiguous on their own, so an
+                        // unwrapped pair is read rather than reported.
+                        case "evtl": CountSequenceTrack(countedSequence); ReadSequenceEvents(r, de); return true;
+                        case "curl": CountSequenceTrack(countedSequence); ReadSequenceCurves(r, de); return true;
                     }
 
                     switch (listType)
@@ -300,6 +477,21 @@ namespace DirectMusicLite
                         case "cord": ReadChordTrack(r, s, de); return true;
                         case "sttr": ReadStyleTrack(r, s, de); return true;
                         case "DMBT": ReadBandTrack(r, s, de); return true;
+                        case "seqt": CountSequenceTrack(countedSequence); ReadSequenceTrack(r, s, de); return true;
+
+                        // Producer wraps the time signature array in a LIST of its own.
+                        // Missed, the segment silently falls back to the style's time
+                        // signature, which puts every measure line in the wrong place.
+                        case "TIMS":
+                            DmRiff.Walk(r, s, de, "DMSG/TIMS", UnclaimedChunks,
+                                delegate (string i2, string l2, long d2, long e2)
+                                {
+                                    if (i2 != "tims") return false;
+                                    ReadTimeSignatures(r, e2);
+                                    return true;
+                                });
+                            return true;
+
                         case "UNFO": return true;
                     }
                     return false;
@@ -363,6 +555,125 @@ namespace DirectMusicLite
                 t.TimeSig = DmTimeSig.Read(r);
                 if (t.TimeSig.IsValid) TimeSignatures.Add(t);
                 r.BaseStream.Position = recStart + stride;
+            }
+        }
+
+        // ------------------------------------------------------ sequence track
+
+        /// <summary>
+        /// The sequence track form: LIST 'seqt' holding an 'evtl' array of events and
+        /// optionally a 'curl' array of controller curves.
+        /// </summary>
+        void CountSequenceTrack(bool[] counted)
+        {
+            if (counted[0]) return;
+            counted[0] = true;
+            SequenceTrackCount++;
+        }
+
+        void ReadSequenceTrack(BinaryReader r, Stream s, long end)
+        {
+            DmRiff.Walk(r, s, end, "DMSG/seqt", UnclaimedChunks,
+                delegate (string id, string listType, long ds, long de)
+                {
+                    if (id == "evtl") { ReadSequenceEvents(r, de); return true; }
+                    if (id == "curl") { ReadSequenceCurves(r, de); return true; }
+                    return listType == "UNFO";
+                });
+        }
+
+        /// <summary>DMUS_IO_SEQ_ITEM records: 17 bytes of fields, normally padded to 20.</summary>
+        void ReadSequenceEvents(BinaryReader r, long end)
+        {
+            int stride = DmRiff.ReadArrayHeader(r, end, 17, 256);
+            if (stride <= 0)
+            {
+                UnclaimedChunks.Add("DMSG/seqt/evtl — implausible record size " + (-stride) + ", skipped");
+                return;
+            }
+
+            while (r.BaseStream.Position + stride <= end)
+            {
+                long recStart = r.BaseStream.Position;
+                DmSequenceEvent e = new DmSequenceEvent();
+                e.Time = r.ReadInt32();
+                e.Duration = r.ReadInt32();
+                e.PChannel = (int)r.ReadUInt32();
+                e.Offset = r.ReadInt16();
+                e.Status = r.ReadByte();
+                e.Byte1 = r.ReadByte();
+                e.Byte2 = r.ReadByte();
+
+                // A status byte below 0x80 isn't a MIDI message at all; it means this
+                // record didn't land where the stride said it would. Keeping it would
+                // fire nonsense at the synth, so it's reported instead.
+                if (e.Status < 0x80)
+                    UnclaimedChunks.Add("DMSG/seqt/evtl — event at t" + e.Time +
+                                        " has status 0x" + e.Status.ToString("X2") + ", skipped");
+                else
+                    SequenceEvents.Add(e);
+
+                r.BaseStream.Position = recStart + stride;
+            }
+        }
+
+        /// <summary>DMUS_IO_CURVE_ITEM records: 28 bytes, 32 with the DX8 additions.</summary>
+        void ReadSequenceCurves(BinaryReader r, long end)
+        {
+            int stride = DmRiff.ReadArrayHeader(r, end, 28, 512);
+            if (stride <= 0)
+            {
+                UnclaimedChunks.Add("DMSG/seqt/curl — implausible record size " + (-stride) + ", skipped");
+                return;
+            }
+
+            while (r.BaseStream.Position + stride <= end)
+            {
+                long recStart = r.BaseStream.Position;
+                DmSequenceCurve c = new DmSequenceCurve();
+                c.Time = r.ReadInt32();
+                c.Duration = r.ReadInt32();
+                c.ResetDuration = r.ReadInt32();
+                c.PChannel = (int)r.ReadUInt32();
+                c.Offset = r.ReadInt16();
+                c.StartValue = r.ReadInt16();
+                c.EndValue = r.ReadInt16();
+                c.ResetValue = r.ReadInt16();
+                c.Type = (DmCurveType)r.ReadByte();
+                c.Shape = (DmCurveShape)r.ReadByte();
+                c.ControllerNumber = r.ReadByte();
+                c.Flags = r.ReadByte();
+                // Later fields, only on files written by DX8 and after.
+                if (r.BaseStream.Position + 2 <= recStart + stride) c.ParamType = r.ReadUInt16();
+                if (r.BaseStream.Position + 2 <= recStart + stride) c.MergeIndex = r.ReadUInt16();
+
+                SequenceCurves.Add(c);
+                r.BaseStream.Position = recStart + stride;
+            }
+        }
+
+        /// <summary>
+        /// Orders the merged sequence lists by play time. Each track is authored in
+        /// order, so this only has work to do where tracks were merged — an insertion
+        /// sort costs nothing on the common case and keeps events authored at the same
+        /// tick in the order the file listed them, which decides whether a program
+        /// change lands before or after the note it was written for.
+        /// </summary>
+        void SortSequence()
+        {
+            for (int i = 1; i < SequenceEvents.Count; i++)
+            {
+                DmSequenceEvent v = SequenceEvents[i];
+                int j = i - 1;
+                while (j >= 0 && SequenceEvents[j].PlayTime > v.PlayTime) { SequenceEvents[j + 1] = SequenceEvents[j]; j--; }
+                SequenceEvents[j + 1] = v;
+            }
+            for (int i = 1; i < SequenceCurves.Count; i++)
+            {
+                DmSequenceCurve v = SequenceCurves[i];
+                int j = i - 1;
+                while (j >= 0 && SequenceCurves[j].PlayTime > v.PlayTime) { SequenceCurves[j + 1] = SequenceCurves[j]; j--; }
+                SequenceCurves[j + 1] = v;
             }
         }
 
@@ -559,6 +870,23 @@ namespace DirectMusicLite
             for (int i = 0; i < StyleReferences.Count; i++)
                 sb.AppendLine("    " + StyleReferences[i]);
 
+            if (SequenceTrackCount > 0 || HasSequence)
+            {
+                sb.AppendLine("  sequence tracks=" + SequenceTrackCount + ": " +
+                              SequenceEvents.Count + " events, " + SequenceCurves.Count +
+                              " curves, ending at tick " + SequenceEndTick);
+                List<int> channels = SequencePChannels();
+                sb.Append("    pchannels:");
+                for (int i = 0; i < channels.Count; i++) sb.Append(" " + channels[i]);
+                sb.AppendLine();
+                for (int i = 0; i < SequenceEvents.Count && i < 24; i++)
+                    sb.AppendLine("    " + SequenceEvents[i]);
+                if (SequenceEvents.Count > 24) sb.AppendLine("    ...");
+                for (int i = 0; i < SequenceCurves.Count && i < 8; i++)
+                    sb.AppendLine("    " + SequenceCurves[i]);
+                if (SequenceCurves.Count > 8) sb.AppendLine("    ...");
+            }
+
             sb.AppendLine("  commands=" + Commands.Count);
             for (int i = 0; i < Commands.Count && i < 24; i++)
                 sb.AppendLine("    " + Commands[i]);
@@ -653,6 +981,14 @@ namespace DirectMusicLite
                 delegate (string id, string listType, long ds, long de)
                 {
                     if (id == "bdih") { band.Time = r.ReadInt32(); return true; }
+                    if (id == "bd2h")
+                    {
+                        // DMUS_IO_BAND_ITEM_HEADER2: a logical time and a physical one.
+                        // The physical time is when the band actually takes effect.
+                        int logical = r.ReadInt32();
+                        band.Time = r.BaseStream.Position + 4 <= de ? r.ReadInt32() : logical;
+                        return true;
+                    }
                     if (listType == "DMBD") { ReadBand(r, s, de, band, unclaimed); return true; }
                     return false;
                 });
