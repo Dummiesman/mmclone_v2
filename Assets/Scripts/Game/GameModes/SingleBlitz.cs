@@ -17,9 +17,9 @@ public class SingleBlitz : SingleGame
     private RaceData raceData;
     private MMGameMode gameMode => MMGameMode.Blitz;
 
-    private float timeSinceTimerWarning = 0.0f;
     private bool outOfTime = false;
     private bool damagedOut = false;
+   
     private BlitzState state;
     private float stateTimer = 5.0f;
 
@@ -64,17 +64,6 @@ public class SingleBlitz : SingleGame
             return true;
         }
         return false;
-    }
-
-    private void PlayTimerWarning(float timeLeft)
-    {
-        float waitTimeBetweenPlays = (timeLeft <= 3.0f) ? 0.25f : 1.0f;   
-        if(timeSinceTimerWarning >= waitTimeBetweenPlays)
-        {
-            PlaySound(GameSound.TimeWarning);
-            timeSinceTimerWarning -= waitTimeBetweenPlays;
-        }
-        timeSinceTimerWarning += Time.deltaTime;
     }
 
     private void GameOver()
@@ -129,6 +118,7 @@ public class SingleBlitz : SingleGame
         {
             case BlitzState.Init:
                 {
+                    StartMusic();
                     DisableRacers();
                     SpeechAudio.PlayPreRace();
                     stateTimer = 5.0f;
@@ -216,6 +206,7 @@ public class SingleBlitz : SingleGame
                             PlayEndOfRaceSpeech(1, 1, rewardAwarded, reward);
                         }
                         StopTimers();
+                        StopMusic();
                         Player.EnterPostRaceMode();
                         state = BlitzState.Finishing;
                         stateTimer = 5.0f;
@@ -301,7 +292,6 @@ public class SingleBlitz : SingleGame
     {
         outOfTime = false;
         damagedOut = false;
-        timeSinceTimerWarning = 1.0f;
         state = BlitzState.Init;
         base.Reset();
     }

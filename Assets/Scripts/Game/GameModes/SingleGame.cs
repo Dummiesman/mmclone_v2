@@ -3,6 +3,10 @@ using UnityEngine;
 
 public class SingleGame : MMGame
 {
+    // Timer warning
+    private float warningInterval = -1.0f;
+    private float timeSinceTimerWarning = 0.0f;
+
     // Matches the player's InertiaBox * 0.5f half-extents
     private const float AIInertiaBoxScale = 0.5f;
 
@@ -152,6 +156,9 @@ public class SingleGame : MMGame
     // Events
     public override void Reset()
     {
+        timeSinceTimerWarning = 1.0f;
+        warningInterval = -1.0f;
+
         ResetTimers();
         StopTimers();
         ResetRaceProgress();
@@ -376,5 +383,25 @@ public class SingleGame : MMGame
     {
         var wps = Waypoints.WaypointObjects;
         return (index >= 0 && index < wps.Count) ? wps[index].transform.position : Vector3.zero;
+    }
+
+    protected void PlayTimerWarning(float timeLeft)
+    {
+        float wait = (timeLeft <= 3.0f) ? 0.245f : 1.0f;
+
+        // interval changed: don't carry credit from the slower cadence
+        if (wait != warningInterval)
+        {
+            warningInterval = wait;
+            timeSinceTimerWarning = Mathf.Min(timeSinceTimerWarning, wait);
+        }
+
+        timeSinceTimerWarning += Time.deltaTime;
+
+        if (timeSinceTimerWarning >= wait)
+        {
+            PlaySound(GameSound.TimeWarning);
+            timeSinceTimerWarning = 0.0f;
+        }
     }
 }

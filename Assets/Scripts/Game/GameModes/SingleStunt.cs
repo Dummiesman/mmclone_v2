@@ -73,17 +73,6 @@ public class SingleStunt : SingleGame
     private List<string> raceNames = new List<string>();
     private MMGameMode gameMode => MMGameMode.CrashCourse;
 
-    private void PlayTimerWarning(float timeLeft)
-    {
-        float waitTimeBetweenPlays = (timeLeft <= 3.0f) ? 0.25f : 1.0f;
-        if (timeSinceTimerWarning >= waitTimeBetweenPlays)
-        {
-            PlaySound(GameSound.TimeWarning);
-            timeSinceTimerWarning -= waitTimeBetweenPlays;
-        }
-        timeSinceTimerWarning += Time.deltaTime;
-    }
-
     private bool NextRaceAvailable()
     {
         // only allow next race when it's not a midterm because the results screen says "next LESSON"
@@ -234,12 +223,12 @@ public class SingleStunt : SingleGame
         var data = events[currentEvent];
         if(data.Checkpoints != 0)
         {
+            bool showOnlyActive = (data.Extra2 != 0);
             if (data.Type != StuntEventType.Jump)
-                Waypoints.ReInit(RaceType.Stunt2, Level.Name, data.Filename);
+                Waypoints.ReInit(RaceType.Stunt2, Level.Name, data.Filename, showOnlyActive);
             else
-                Waypoints.ReInit(RaceType.Stunt1, Level.Name, data.Filename);
+                Waypoints.ReInit(RaceType.Stunt1, Level.Name, data.Filename, showOnlyActive);
             Waypoints.enabled = true;
-            Waypoints.ShowOnlyActiveOnMap = (data.Extra2 != 0);
 
             foreach(var wpobj in Waypoints.WaypointObjects)
             {
@@ -397,6 +386,7 @@ public class SingleStunt : SingleGame
             Player.HUD.ResultsMenu.AddLoser(1, playerName);
         }
         Player.HUD.ResultsMenu.SetNextRaceAvailable(NextRaceAvailable());
+        Music.StopMusic();
 
         var city = CityList.GetCity(Level.Name);
         var cityRecord = PlayerManager.OpenCityRecord(city.RaceDir);
@@ -1354,7 +1344,6 @@ public class SingleStunt : SingleGame
 
         state = StuntState.Init;
         stateTimer = 0.0f;
-        timeSinceTimerWarning = 1.0f;
 
         SpeechAudio.PlayCat("PRERACE");
         StartMusic();
