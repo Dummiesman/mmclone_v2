@@ -126,7 +126,7 @@ public class RaceMenuBase : UIMenu
         UpdateRaceList();
 
         int raceIndex = 0;
-        if (gameMode != MMGameMode.Cruise && gameMode != MMGameMode.CopsNRobbers)
+        if (SelectedGameMode != MMGameMode.Cruise && SelectedGameMode != MMGameMode.CopsNRobbers)
             raceIndex = Mathf.Clamp(GameState.SelectedRace, 0, raceNameDropdown.Items.Count - 1);
 
         raceNameDropdown.SelectedItemIndex = raceIndex;
@@ -241,6 +241,17 @@ public class RaceMenuBase : UIMenu
         }
     }
 
+    private bool IsGameModeAvailable(MMGameMode mode)
+    {
+        switch (mode)
+        {
+            case MMGameMode.Blitz: return blitzButton.Enabled;
+            case MMGameMode.Checkpoint: return checkpointButton.Enabled;
+            case MMGameMode.Circuit: return circuitButton.Enabled;
+            default: return true; // cruise / cops'n'robbers always exist
+        }
+    }
+
     private void SetCityWidgetState(int cityIndex)
     {
         var cityInfo = CityList.Cities[cityIndex];
@@ -248,6 +259,12 @@ public class RaceMenuBase : UIMenu
         blitzButton.Enabled = (cityInfo.BlitzNames.Length > 0);
         checkpointButton.Enabled = (cityInfo.CheckpointNames.Length > 0);
         circuitButton.Enabled = (cityInfo.CircuitNames.Length > 0);
+
+        // this city may not have the mode that is currently selected
+        if (!IsGameModeAvailable(SelectedGameMode))
+        {
+            SelectedGameMode = MMGameMode.Cruise;
+        }
 
         var cityRecord = PlayerManager.OpenCityRecord(cityInfo.RaceDir);
         if (cityRecord != null)
@@ -369,6 +386,7 @@ public class RaceMenuBase : UIMenu
 
         SetCityWidgetState(index);
         UpdateRaceList();
+        raceNameDropdown.SelectedItemIndex = 0;
         RaceChange(0);
     }
 
