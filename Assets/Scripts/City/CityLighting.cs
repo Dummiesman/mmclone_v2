@@ -34,7 +34,7 @@ public class CityLightingPreset
                 Name = name,
                 Heading = reader.Read(name + "Heading", 1f),
                 Pitch = reader.Read(name + "Pitch", 1f),
-                Color = reader.Read(name + "Color", Color.white)
+                Color = reader.Read(name + "Color", Color.white),
             };
         }
     }
@@ -42,7 +42,8 @@ public class CityLightingPreset
     public CityLight KeyLight;
     public CityLight Fill1Light;
     public CityLight Fill2Light;
-
+    public bool Headlights = false; // mm2hook addition
+    public string ReflectionMap = "refl_dc"; // mm2hook addition
 
     private Color32 ambientBase;
 
@@ -82,10 +83,14 @@ public class CityLightingPreset
         preset.Fill1Light = CityLight.FromParser("Fill1", lightNode);
         preset.Fill2Light = CityLight.FromParser("Fill2", lightNode);
 
-        //read ambient color
+        // read ambient color
         int ambientColor = lightNode.Read("Ambient", 0x050505FF);
         byte[] ambientBytes = System.BitConverter.GetBytes(ambientColor);
         preset.ambientBase = new Color32(ambientBytes[2], ambientBytes[1], ambientBytes[0], ambientBytes[3]);
+
+        // read mm2hook specifics
+        preset.Headlights = lightNode.Read("Headlights", preset.Headlights);
+        preset.ReflectionMap = lightNode.Read("ReflectionMap", preset.ReflectionMap);
 
         //
         return preset;
@@ -94,15 +99,13 @@ public class CityLightingPreset
 
 public class CityLighting
 {
-    public CityLightingPreset preset { get; protected set; }
-    public Color AmbientColor { get; protected set; }
+    public CityLightingPreset preset { get; private set; }
+    public Color AmbientColor { get; private set; }
 
     private GameObject LightingParent;
-    protected Light Fill1SceneLight;
-    protected Light Fill2SceneLight;
-    protected Light KeySceneLight;
-
-    protected float ambientMultiplier = 1f;
+    private Light Fill1SceneLight;
+    private Light Fill2SceneLight;
+    private Light KeySceneLight;
 
     public IReadOnlyList<Light> ActiveLights => activeLights;
     private List<Light> activeLights = new List<Light>();
@@ -156,6 +159,10 @@ public class CityLighting
     {
         string fileID = (((int)timeOfDay * 4) + (int)weather).ToString("00");
         preset = CityLightingPreset.FromFile(city + ".lt" + fileID);
+
+        // add default headlight settings in case of unspecified values
+        bool defHeadlights = (timeOfDay == MMTimeOfDay.Night || timeOfDay == MMTimeOfDay.Evening);
+        preset.Headlights |= defHeadlights;
     }
 
     /// <summary>
