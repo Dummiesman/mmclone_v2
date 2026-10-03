@@ -21,6 +21,7 @@ public class SDLCity : MonoBehaviour
     public IReadOnlyList<RoomInfo> Rooms => rooms;
     public Quadtree<RoomInfo> RoomQuadtree => roomQuadtree;
     public Bounds Bounds { get; private set; }
+    public CityTextureVariants TextureVariantSettings => textureVariantSettings;
     public CityLighting Lighting => lighting;
     public BangerDataManager BangerDataManager => bangerDataManager;
     public CPVSCuller Culler => culler;
@@ -31,6 +32,7 @@ public class SDLCity : MonoBehaviour
     private new string name;
     private AIMap aiMap;
     private AINetwork aiNetwork;
+    private CityTextureVariants textureVariantSettings;
     private CityLighting lighting;
     private CityFog fog;
     private Skydome sky;
@@ -460,6 +462,9 @@ public class SDLCity : MonoBehaviour
         fog = new CityFog();
         fog.Init(GameState.SelectedCity);
         fog.SetTimeAndWeather(GameState.SelectedTimeOfDay, GameState.SelectedWeather);
+
+        textureVariantSettings = new CityTextureVariants();
+        textureVariantSettings.Load(GameState.SelectedCity, GameState.SelectedTimeOfDay, GameState.SelectedWeather);
     }
 
     public void InitSky()
