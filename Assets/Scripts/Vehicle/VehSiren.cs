@@ -1,3 +1,4 @@
+using System.Linq;
 using UnityEngine;
 
 public class VehSiren : VehSubsystem
@@ -6,8 +7,8 @@ public class VehSiren : VehSubsystem
     public int LightCount => lightCount;
     private int lightCount = 0;
 
-    private LightGlow[] glows = new LightGlow[4];
-    private float[] glowRotations = new float[4];
+    private LightGlow[] glows = new LightGlow[8];
+    private float[] glowRotations = new float[8];
     private float rotationRate = 2.5f;
 
     public void Activate()
@@ -23,18 +24,19 @@ public class VehSiren : VehSubsystem
     public override void Init(VehCar car)
     {
         base.Init(car);
-        for(int i=0; i < 4; i++)
+
+        var sirens = car.Model.Sirens;
+        for(int i=0; i < glows.Length && i < Car.Model.Sirens.Count; i++)
         {
             var sirenObject = Car.Model.Sirens[i];
             if(sirenObject != null)
             {
                 lightCount++;
+                glows[i] = new LightGlow()
+                {
+                    SpotExponent = 3.0f
+                };
             }
-
-            glows[i] = new LightGlow()
-            {
-                SpotExponent = 3.0f
-            };
             glowRotations[i] = i * 1.5707964f;
         }
     }

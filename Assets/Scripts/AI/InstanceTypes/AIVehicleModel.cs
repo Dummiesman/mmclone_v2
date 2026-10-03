@@ -140,7 +140,6 @@ public class AIVehicleModel : LevelInstance
         loader.SetDefaultShaderSelector(VehicleShaderFor);
         loader.SetFlipXZ(true);
 
-        loader.SetProperties(BodyReflection);
         loader.LoadGroup("body", applyPivot: false);
 
         loader.SetProperties(NoReflection);
@@ -327,7 +326,12 @@ public class AIVehicleModel : LevelInstance
         UpdateShadow();
 
         // Draw lights
-        if (hasHeadlight0 && (GameState.SelectedTimeOfDay == MMTimeOfDay.Night || GameState.SelectedTimeOfDay == MMTimeOfDay.Evening))
+        bool lightsOn = false;
+        if (Level != null)
+        {
+            lightsOn = Level.Lighting.preset.Headlights;
+        }
+        if (hasHeadlight0 && lightsOn)
         {
             Vector3 dir = transform.TransformDirection(Vector3.forward);
             lightGlows[0].Direction = dir;
@@ -375,11 +379,15 @@ public class AIVehicleModel : LevelInstance
         }
 
         // Running taillight
-        bool night = (GameState.SelectedTimeOfDay == MMTimeOfDay.Night || GameState.SelectedTimeOfDay == MMTimeOfDay.Evening);
-        if (night != nightLightsOn)
+        bool lightsOn = false;
+        if (Level != null)
         {
-            nightLightsOn = night;
-            SetActiveSafe(tlightNight, night);
+            lightsOn = Level.Lighting.preset.Headlights;
+        }
+        if (lightsOn != nightLightsOn)
+        {
+            nightLightsOn = lightsOn;
+            SetActiveSafe(tlightNight, lightsOn);
         }
 
         bool blink = Mathf.Repeat(Time.time, BlinkPeriod) < BlinkPeriod * 0.5f;
@@ -460,10 +468,6 @@ public class AIVehicleModel : LevelInstance
 
     private static MaterialProperties WhiteAdditive =>
         whiteAdditive ?? (whiteAdditive = new MaterialProperties().SetColor("_Color", Color.white));
-
-    private static MaterialProperties BodyReflection =>
-        bodyReflection ?? (bodyReflection =
-            new MaterialProperties().SetTexture("_ReflTex", TextureCache.Get("refl_dc")));
 
     private void OnDestroy()
     {

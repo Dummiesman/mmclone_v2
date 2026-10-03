@@ -15,27 +15,27 @@ public class VehicleModel : LevelInstance
     private PackageObjectInstance instance;
 
     private GameObject body, shadow, tlight, blight, rlight;
-    private GameObject tlightNight;
-
-    private Renderer[] tlightRenderers;
-    private Renderer[] tlightNightRenderers;
 
     private readonly GameObject[] wheels = new GameObject[4];
+    private readonly GameObject[] spinWheels = new GameObject[SpinWheelParts.Length];
+    private readonly bool[] wheelBlurred = new bool[4];
     private readonly GameObject[] fenders = new GameObject[2];
     private readonly Vector3[] fenderPivots = new Vector3[2];
     private readonly GameObject[] variantObjects = new GameObject[VariantCount];
     private readonly GameObject[] breakParts = new GameObject[8];
+    private readonly GameObject[] tsLights = new GameObject[TSLightParts.Length];
 
     private readonly List<VehSuspensionVisual> suspensions = new List<VehSuspensionVisual>();
     private readonly List<VehAxleVisual> axles = new List<VehAxleVisual>();
 
+    private readonly List<NightLightClone> nightLights = new List<NightLightClone>();
 
     private LightGlow[] lightGlows;
     private GameObject headlight0;
     private GameObject headlight1;
 
-    private readonly GameObject[] sirens = new GameObject[SirenParts.Length];
-    private readonly Color[] sirenColors = new Color[SirenParts.Length];
+    private readonly GameObject[] sirens = new GameObject[SirenParts.Length + AdditionalSirenParts.Length];
+    private readonly Color[] sirenColors = new Color[SirenParts.Length + AdditionalSirenParts.Length];
 
     public IReadOnlyList<GameObject> Sirens => sirens;
     public IReadOnlyList<Color> SirenColors => sirenColors;
@@ -112,9 +112,38 @@ public class VehicleModel : LevelInstance
         "srn0", "srn1", "srn2", "srn3",
     };
 
+    private static readonly string[] AdditionalSirenParts =
+{
+        "srn4", "srn5", "srn6", "srn7"
+    };
+
+    /// <summary>
+    /// Blurred wheel copies. 0-3 shadow the driven wheels and are swapped in
+    /// once the wheel spins past WheelBlurRotationRate; 4/5 pair with whl4/whl5,
+    /// which have no sim wheel behind them yet, so they stay hidden.
+    /// </summary>
+    private static readonly string[] SpinWheelParts =
+    {
+        "swhl0", "swhl1", "swhl2", "swhl3", "swhl4", "swhl5",
+    };
+
+    /// <summary>
+    /// Combined turn-signal / brake lights. Signals aren't implemented yet, so
+    /// for now these are driven exactly like TLIGHT: on with the brakes, plus a
+    /// night copy that stays lit as a running light.
+    /// </summary>
+    private static readonly string[] TSLightParts =
+    {
+        "tslight0", "tslight1",
+    };
 
     /// <summary>The original relied on draw order to keep the shadow off the road; Unity needs a real gap.</summary>
     private const float shadowLift = 0.02f;
+
+    /// <summary>
+    /// Wheel spin speed, in rad/s
+    /// </summary>
+    private const float WheelBlurRotationRate = 26.0f;
 
     public int Variant
     {
@@ -128,6 +157,23 @@ public class VehicleModel : LevelInstance
     public VehCar Vehicle => vehicle;
 
     private List<Renderer> renderers = new List<Renderer>();
+
+    /// <summary>
+    /// A light that also burns as a running light after dark: the authored part
+    /// keeps its brake-driven behaviour and this second copy, drawn on top of
+    /// it, is simply on for the whole night. Braking at night stacks two
+    /// additive passes, so the lamp reads brighter than its running state.
+    ///
+    /// The copy is not part of the PackageObjectInstance, so nothing in
+    /// SetVariant reaches it - its materials are re-synced by hand from the
+    /// source whenever the variant changes.
+    /// </summary>
+    private sealed class NightLightClone
+    {
+        public GameObject Clone;
+        public Renderer[] SourceRenderers;
+        public Renderer[] CloneRenderers;
+    }
 
     private Color GetSurfaceColor(GameObject obj)
     {
@@ -193,9 +239,9 @@ public class VehicleModel : LevelInstance
 
         AssignNamedParts();
 
-        // Before the renderer sweep below, so the night copy is collected with
-        // everything else.
-        CreateNightTaillight();
+        // Before the renderer sweep below, so the night copies are collected
+        // with everything else.
+        CreateNightLights();
 
         renderers.AddRange(this.gameObject.GetComponentsInChildren<Renderer>(true));
         SetVariant(variant);
@@ -229,7 +275,6 @@ public class VehicleModel : LevelInstance
         loader.SetFlipXZ(true);
 
         // The body is the one part that keeps its ShaderSet reflectivity.
-        loader.SetProperties(BodyReflection);
         loader.LoadGroup("body", applyPivot: false);
 
         loader.SetProperties(NoReflection);
@@ -272,6 +317,35 @@ public class VehicleModel : LevelInstance
         // non-driven wheels, so unlike whl0-3 they do take an authored pivot.
         loader.LoadGroups(new[] { "fndr0", "fndr1", "whl4", "whl5" });
 
+        // Additions from mm2hook
+        loader.LoadGroup("plighton");
+        loader.LoadGroup("plightoff");
+
+        // Spinning wheels: shown instead of whl versions when wheels are
+        // spinning fast enough. No pivot, for the same reason whl0-3 take
+        // none - they're posed straight from the sim wheel.
+        loader.LoadGroups(SpinWheelParts, applyPivot: false);
+
+        // Additional hubs and spinning versions
+        loader.LoadGroups(new[] { "hub4", "hub5" }, applyPivot: false);
+        loader.LoadGroups(new[] { "shub0", "shub1", "shub2", "shub3", "shub4", "shub5" }, applyPivot: false);
+
+        // Additional lights
+        loader.LoadGroups(new[] { "headlight2", "headlight3", "headlight4", "headlight5", "headlight6", "headlight7" }, applyPivot: true);
+
+        // Additional sirens
+        loader.LoadGroups(AdditionalSirenParts);
+
+        // Lightbar breakables
+        loader.LoadGroups(new[] { "lightbar0", "lightbar1" });
+
+        // combined signal and brake lights
+        loader.SetShader(GetAdditiveShader());
+        loader.SetProperties(WhiteAdditive);
+        loader.LoadGroups(TSLightParts, applyPivot: false);
+        loader.SetShader(null);
+        loader.SetProperties(NoReflection);
+
         for (int i = 0; i < VariantCount; i++)
             loader.LoadGroup($"variant{i}");
 
@@ -285,10 +359,25 @@ public class VehicleModel : LevelInstance
         return index >= 0;
     }
 
+    /// <summary>
+    /// srn0-3 and srn4-7 are one flat run as far as callers are concerned, so
+    /// the extra set is folded onto the end of the base set's indices.
+    /// </summary>
     private static bool TryGetSirenIndex(string name, out int index)
     {
         index = Array.IndexOf(SirenParts, name);
-        return index >= 0;
+        if (index >= 0)
+            return true;
+
+        int extra = Array.IndexOf(AdditionalSirenParts, name);
+        if (extra >= 0)
+        {
+            index = SirenParts.Length + extra;
+            return true;
+        }
+
+        index = -1;
+        return false;
     }
 
     private static bool TryGetSuspensionIndex(string name, out int index)
@@ -300,6 +389,18 @@ public class VehicleModel : LevelInstance
     private static bool TryGetAxleIndex(string name, out int index)
     {
         index = Array.IndexOf(AxleParts, name);
+        return index >= 0;
+    }
+
+    private static bool TryGetSpinWheelIndex(string name, out int index)
+    {
+        index = Array.IndexOf(SpinWheelParts, name);
+        return index >= 0;
+    }
+
+    private static bool TryGetTSLightIndex(string name, out int index)
+    {
+        index = Array.IndexOf(TSLightParts, name);
         return index >= 0;
     }
 
@@ -351,6 +452,17 @@ public class VehicleModel : LevelInstance
                         sirenColors[sirenNumber] = GetSurfaceColor(part.Object);
                         part.Object.SetActive(false);
                     }
+                    else if (TryGetSpinWheelIndex(part.Name, out int spinNumber))
+                    {
+                        // The solid wheel is what loads visible; the blurred
+                        // copy only comes up once UpdateWheelBlur swaps them.
+                        spinWheels[spinNumber] = part.Object;
+                        part.Object.SetActive(false);
+                    }
+                    else if (TryGetTSLightIndex(part.Name, out int tsNumber))
+                    {
+                        tsLights[tsNumber] = part.Object;
+                    }
                     else if (TryGetVariantIndex(part.Name, out int variantNumber))
                     {
                         variantObjects[variantNumber] = part.Object;
@@ -367,11 +479,11 @@ public class VehicleModel : LevelInstance
                     {
                         // Parts this VehicleModel has no runtime driver for
                         // (hlight, slight0/1, bodydamage, siren0/1, decal,
-                        // driver, engine, break*, hub0-3, trailer_hitch,
-                        // srn0-3, whl4/5) - hidden by default rather than left
-                        // inert and visible. A future feature (driver model,
-                        // damage states, extra wheels) can SetActive(true) it
-                        // once it's wired up.
+                        // driver, engine, break*, hub0-5, shub0-5,
+                        // trailer_hitch, whl4/5) - hidden by default rather
+                        // than left inert and visible. A future feature
+                        // (driver model, damage states, extra wheels) can
+                        // SetActive(true) it once it's wired up.
                         part.Object.SetActive(false);
                     }
                     break;
@@ -381,6 +493,16 @@ public class VehicleModel : LevelInstance
         if (tlight != null) tlight.SetActive(brakeLightsOn);
         if (blight != null) blight.SetActive(brakeLightsOn);
         if (rlight != null) rlight.SetActive(reverseLightOn);
+
+        // Signals aren't wired up yet, so these follow the brakes exactly.
+        for (int i = 0; i < tsLights.Length; i++)
+        {
+            if (tsLights[i] != null) tsLights[i].SetActive(brakeLightsOn);
+        }
+
+        // Blurred copies start stowed; nothing has spun up yet.
+        for (int i = 0; i < wheelBlurred.Length; i++)
+            wheelBlurred[i] = false;
     }
 
     /// <summary>
@@ -470,55 +592,72 @@ public class VehicleModel : LevelInstance
     }
 
     /// <summary>
-    /// Second copy of TLIGHT, drawn on top of the original. This one is on for
+    /// Builds the night running-light copies. TLIGHT has always had one;
+    /// tslight0/1 get the same treatment while they're standing in as plain
+    /// taillights.
+    /// </summary>
+    private void CreateNightLights()
+    {
+        CreateNightClone(tlight);
+
+        for (int i = 0; i < tsLights.Length; i++)
+            CreateNightClone(tsLights[i]);
+    }
+
+    /// <summary>
+    /// Second copy of a lamp, drawn on top of the original. This one is on for
     /// the whole night regardless of brake input; the original keeps its
     /// brake-driven behaviour, so braking at night stacks two additive passes
-    /// and the taillight reads brighter than its running state.
-    ///
-    /// The clone is not part of the PackageObjectInstance, so nothing in
-    /// SetVariant reaches it - its materials are re-synced from the original
-    /// by hand whenever the variant changes.
+    /// and the lamp reads brighter than its running state.
     /// </summary>
-    private void CreateNightTaillight()
+    private void CreateNightClone(GameObject source)
     {
-        if (tlight == null) return;
+        if (source == null) return;
 
-        tlightNight = Instantiate(tlight, tlight.transform.parent, false);
-        tlightNight.name = tlight.name + "_night";
+        var clone = Instantiate(source, source.transform.parent, false);
+        clone.name = source.name + "_night";
 
-        // Instantiate copies the source's local transform, but tlight is
-        // loaded with applyPivot: false and sits at identity - set it
+        // Instantiate copies the source's local transform, but these lamps are
+        // loaded with applyPivot: false and sit at identity - set it
         // explicitly so the two stay welded together regardless.
-        var src = tlight.transform;
-        var dst = tlightNight.transform;
+        var src = source.transform;
+        var dst = clone.transform;
         dst.localPosition = src.localPosition;
         dst.localRotation = src.localRotation;
         dst.localScale = src.localScale;
 
-        tlightRenderers = tlight.GetComponentsInChildren<Renderer>(true);
-        tlightNightRenderers = tlightNight.GetComponentsInChildren<Renderer>(true);
+        // The clone's own active state is the night flag; the source may have
+        // been cloned while it was off if the car isn't braking, but don't
+        // rely on that.
+        clone.SetActive(false);
 
-        // The clone's own active state is the night flag; the source object
-        // was cloned while it was off if the car isn't braking, but don't rely
-        // on that.
-        tlightNight.SetActive(false);
+        nightLights.Add(new NightLightClone
+        {
+            Clone = clone,
+            SourceRenderers = source.GetComponentsInChildren<Renderer>(true),
+            CloneRenderers = clone.GetComponentsInChildren<Renderer>(true),
+        });
     }
 
     /// <summary>
-    /// The clone shares the template's meshes but holds its own Renderer
-    /// components, so the material swap SetVariant performs on the original
-    /// doesn't reach it. The hierarchies are identical copies, so the renderer
-    /// arrays line up index for index.
+    /// The clones share the template's meshes but hold their own Renderer
+    /// components, so the material swap SetVariant performs on the originals
+    /// doesn't reach them. The hierarchies are identical copies, so the
+    /// renderer arrays line up index for index.
     /// </summary>
-    private void SyncNightTaillightMaterials()
+    private void SyncNightLightMaterials()
     {
-        if (tlightRenderers == null || tlightNightRenderers == null) return;
-
-        int count = Mathf.Min(tlightRenderers.Length, tlightNightRenderers.Length);
-        for (int i = 0; i < count; i++)
+        for (int n = 0; n < nightLights.Count; n++)
         {
-            if (tlightRenderers[i] == null || tlightNightRenderers[i] == null) continue;
-            tlightNightRenderers[i].sharedMaterials = tlightRenderers[i].sharedMaterials;
+            var entry = nightLights[n];
+            if (entry.SourceRenderers == null || entry.CloneRenderers == null) continue;
+
+            int count = Mathf.Min(entry.SourceRenderers.Length, entry.CloneRenderers.Length);
+            for (int i = 0; i < count; i++)
+            {
+                if (entry.SourceRenderers[i] == null || entry.CloneRenderers[i] == null) continue;
+                entry.CloneRenderers[i].sharedMaterials = entry.SourceRenderers[i].sharedMaterials;
+            }
         }
     }
 
@@ -573,11 +712,12 @@ public class VehicleModel : LevelInstance
 
         // Suspension parts need no pass of their own: VehSuspension reads
         // sharedMaterials off its renderer at draw time, so whatever
-        // instance.SetVariant just assigned is what gets submitted.
+        // instance.SetVariant just assigned is what gets submitted. Same goes
+        // for the blurred wheels - they're ordinary instance parts.
 
-        // After instance.SetVariant, so the original is already carrying this
+        // After instance.SetVariant, so the originals are already carrying this
         // variant's materials when they're copied across.
-        SyncNightTaillightMaterials();
+        SyncNightLightMaterials();
     }
 
     private void LateUpdate()
@@ -586,7 +726,12 @@ public class VehicleModel : LevelInstance
         UpdateModel();
 
         // Draw lights
-        if (GameState.SelectedTimeOfDay == MMTimeOfDay.Night || GameState.SelectedTimeOfDay == MMTimeOfDay.Evening)
+        bool lightsOn = false;
+        if(Level != null)
+        {
+            lightsOn = Level.Lighting.preset.Headlights;
+        }
+        if (lightsOn)
         {
             Vector3 dir = transform.TransformDirection(Vector3.forward);
             lightGlows[0].Direction = dir;
@@ -657,6 +802,13 @@ public class VehicleModel : LevelInstance
             brakeLightsOn = braking;
             if (tlight != null) tlight.SetActive(braking);
             if (blight != null) blight.SetActive(braking);
+
+            // Turn signals aren't implemented yet, so the combined lamps are
+            // brake lights and nothing else for now.
+            for (int i = 0; i < tsLights.Length; i++)
+            {
+                if (tsLights[i] != null) tsLights[i].SetActive(braking);
+            }
         }
 
         // Gear 0 is reverse - forward ratios start above it.
@@ -668,13 +820,19 @@ public class VehicleModel : LevelInstance
             if (rlight != null) rlight.SetActive(reversing);
         }
 
-        // Running taillight
-        bool night = (GameState.SelectedTimeOfDay == MMTimeOfDay.Night || GameState.SelectedTimeOfDay == MMTimeOfDay.Evening);
-
-        if (night != nightLightsOn)
+        // Running taillights
+        bool lightsOn = false;
+        if (Level != null)
         {
-            nightLightsOn = night;
-            if (tlightNight != null) tlightNight.SetActive(night);
+            lightsOn = Level.Lighting.preset.Headlights;
+        }
+        if (lightsOn != nightLightsOn)
+        {
+            nightLightsOn = lightsOn;
+            for (int i = 0; i < nightLights.Count; i++)
+            {
+                if (nightLights[i].Clone != null) nightLights[i].Clone.SetActive(lightsOn);
+            }
         }
     }
 
@@ -683,17 +841,63 @@ public class VehicleModel : LevelInstance
         var sim = vehicle.VehCarSim;
         if (sim == null || sim.Wheels == null) return;
 
-        for (int i = 0; i < 4; i++)
+        int count = Mathf.Min(4, sim.Wheels.Length);
+
+        for (int i = 0; i < count; i++)
         {
+            var simWheel = sim.Wheels[i];
+
+            // Decide which copy is on first, so whichever one ends up visible
+            // is posed below before it draws.
+            UpdateWheelBlur(i, simWheel.RotationRate, simWheel.LocalPosition, simWheel.LocalRotation);
+
             if (wheels[i] == null) continue;
 
             // Chassis-space pose from VehWheel.UpdateVisualTransform during
             // the fixed step - already includes pivot, steer, suspension
             // travel, sag, camber, spin and wobble. Straight assignment.
             var t = wheels[i].transform;
-            t.localPosition = sim.Wheels[i].LocalPosition;
-            t.localRotation = sim.Wheels[i].LocalRotation;
+            t.localPosition = simWheel.LocalPosition;
+            t.localRotation = simWheel.LocalRotation;
         }
+    }
+
+    /// <summary>
+    /// Swaps a wheel between its solid mesh and its blurred swhl copy once the
+    /// spin passes WheelBlurRotationRate. The blurred copy takes the hub
+    /// rotation rather than the full wheel rotation: the blur is baked into the
+    /// texture, so spinning it as well just makes the smear rotate.
+    /// Cars with no swhl for this wheel keep the solid mesh at all speeds.
+    /// </summary>
+    private void UpdateWheelBlur(int index, float rotationRate, Vector3 localPosition, Quaternion localRotation)
+    {
+        var spin = spinWheels[index];
+
+        if (spin == null)
+        {
+            if (wheelBlurred[index])
+            {
+                wheelBlurred[index] = false;
+                if (wheels[index] != null) wheels[index].SetActive(true);
+            }
+            return;
+        }
+
+        float rate = Mathf.Abs(rotationRate);
+        bool blurred = rate > WheelBlurRotationRate;
+
+        if (blurred != wheelBlurred[index])
+        {
+            wheelBlurred[index] = blurred;
+            if (wheels[index] != null) wheels[index].SetActive(!blurred);
+            spin.SetActive(blurred);
+        }
+
+        if (!blurred) return;
+
+        var t = spin.transform;
+        t.localPosition = localPosition;
+        t.localRotation = localRotation;
     }
 
     private void UpdateFenders()
@@ -788,10 +992,6 @@ public class VehicleModel : LevelInstance
     private static MaterialProperties WhiteAdditive =>
         whiteAdditive ?? (whiteAdditive = new MaterialProperties().SetColor("_Color", Color.white));
 
-    private static MaterialProperties BodyReflection =>
-    bodyReflection ?? (bodyReflection =
-        new MaterialProperties().SetTexture("_ReflTex", TextureCache.Get("refl_dc")));
-
     private void Update()
     {
         if (Level != null)
@@ -812,23 +1012,28 @@ public class VehicleModel : LevelInstance
         instance?.Destroy();
         instance = null;
 
-        // The night taillight is ours, not the template's - it was cloned
-        // here, so it has to go here.
-        if (tlightNight != null) Destroy(tlightNight);
-        tlightNight = null;
-        tlightRenderers = null;
-        tlightNightRenderers = null;
+        // The night copies are ours, not the template's - they were cloned
+        // here, so they have to go here.
+        for (int i = 0; i < nightLights.Count; i++)
+        {
+            if (nightLights[i].Clone != null) Destroy(nightLights[i].Clone);
+        }
+        nightLights.Clear();
 
         // The components went down with the part GameObjects; just drop the
         // references so nothing keeps drawing off a stale list.
         suspensions.Clear();
+        axles.Clear();
 
         body = shadow = tlight = blight = rlight = null;
         for (int i = 0; i < wheels.Length; i++) wheels[i] = null;
+        for (int i = 0; i < spinWheels.Length; i++) spinWheels[i] = null;
+        for (int i = 0; i < wheelBlurred.Length; i++) wheelBlurred[i] = false;
         for (int i = 0; i < fenders.Length; i++) fenders[i] = null;
         for (int i = 0; i < variantObjects.Length; i++) variantObjects[i] = null;
         for (int i = 0; i < breakParts.Length; i++) breakParts[i] = null;
         for (int i = 0; i < sirens.Length; i++) sirens[i] = null;
+        for (int i = 0; i < tsLights.Length; i++) tsLights[i] = null;
 
         vehicle = null;
         brakeLightsOn = false;
@@ -859,6 +1064,27 @@ public class VehicleModel : LevelInstance
         if (tlight != null) tlight.SetActive(false);
         if (blight != null) blight.SetActive(false);
         if (rlight != null) rlight.SetActive(false);
-        if (tlightNight != null) tlightNight.SetActive(false);
+
+        for (int i = 0; i < tsLights.Length; i++)
+        {
+            if (tsLights[i] != null) tsLights[i].SetActive(false);
+        }
+
+        for (int i = 0; i < nightLights.Count; i++)
+        {
+            if (nightLights[i].Clone != null) nightLights[i].Clone.SetActive(false);
+        }
+
+        // Wheels come back stopped, so the solid meshes are what should show.
+        for (int i = 0; i < wheelBlurred.Length; i++)
+        {
+            wheelBlurred[i] = false;
+            if (wheels[i] != null) wheels[i].SetActive(true);
+        }
+
+        for (int i = 0; i < spinWheels.Length; i++)
+        {
+            if (spinWheels[i] != null) spinWheels[i].SetActive(false);
+        }
     }
 }
