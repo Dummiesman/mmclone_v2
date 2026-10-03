@@ -89,7 +89,7 @@ public class PopupGraphics : PopupMenuBase
                                cell.x, ControlY(cell, kButtonH), cell.width, kButtonH,
                                text, TextNodeEffect.CenterBoth | TextNodeEffect.Box, kFontSize);
 
-        // TODO: confirm the event/callback name on TextButton
+        button.Sound = MenuSound.BeepDouble;
         button.OnClick += onClick;
     }
 
@@ -136,8 +136,8 @@ public class PopupGraphics : PopupMenuBase
 
     private void ToggleTexturedSky()
     {
-        // GameState.TexturedSky = !GameState.TexturedSky;
-        // RefreshToggleText();
+        GameState.TexturedSky = !GameState.TexturedSky;
+        RefreshToggleText();
     }
 
     private static string OnOff(bool value)
@@ -153,7 +153,7 @@ public class PopupGraphics : PopupMenuBase
 
         texturedSkyButton.Text =
             Localization.GetString(LocString.PopupGraphicsOptionsTexturedSky)
-            + "  " + OnOff(true);
+            + "  " + OnOff(GameState.TexturedSky);
     }
 
     private void ApplyState()
@@ -181,7 +181,7 @@ public class PopupGraphics : PopupMenuBase
         graphicsConfig.farClip = GameState.ViewDistance;
         // graphicsConfig.lightingQuality = GameState.LightingQuality;
         // graphicsConfig.vehicleReflections = GameState.VehicleReflections;
-        // graphicsConfig.texturedSky = GameState.TexturedSky;
+        graphicsConfig.enableSky = GameState.TexturedSky;
         currentConfig.Gfx = graphicsConfig;
 
         PlayerManager.SavePlayer();
@@ -264,7 +264,6 @@ public class PopupGraphics : PopupMenuBase
         // not implemented yet:
         vehicleReflectionsButton.Enabled = false;
         cloudShadowsDropdown.Enabled = false;
-        texturedSkyButton.Enabled = false;
         lightingQualitySlider.Enabled = false;
 
         AddOkCancel(OkAction, CancelAction);
