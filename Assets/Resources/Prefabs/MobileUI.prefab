@@ -55,9 +55,9 @@ MonoBehaviour:
   handbrakeIcon: {fileID: 2800000, guid: 1eb55c180b9b9414f81227fc6a1833a1, type: 3}
   brakePedalIcon: {fileID: 2800000, guid: 490a8f2e0bcc6464aba07d4f6c64f8dc, type: 3}
   acceleratorPedalIcon: {fileID: 2800000, guid: b2d159f4aa127fb4f816325cd662b758, type: 3}
-  buttonIdleTint: {r: 1, g: 1, b: 1, a: 0.75}
-  buttonPressedTint: {r: 1, g: 1, b: 1, a: 1}
-  controlTint: {r: 1, g: 1, b: 1, a: 0.75}
+  buttonIdleTint: {r: 1, g: 1, b: 1, a: 0.54901963}
+  buttonPressedTint: {r: 1, g: 1, b: 1, a: 0.7490196}
+  controlTint: {r: 1, g: 1, b: 1, a: 0.54901963}
   referenceHeight: 1080
   screenMargin: 36
   buttonSize: 120
