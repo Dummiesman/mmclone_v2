@@ -29,6 +29,7 @@ public class CopHudmapItem : HudmapItem
 }
 enum HudmapItemWaypointState
 {
+    Unknown = -1,
     Hidden = 0,
     Uncleared = 1,
     Cleared = 2,
@@ -41,7 +42,7 @@ public class HudmapItemWaypoint : HudmapItem
     private MMWaypoints waypoints;
     private WaypointObject wpobj;
     private int index = -1;
-    private HudmapItemWaypointState lastState = HudmapItemWaypointState.Hidden;
+    private HudmapItemWaypointState lastState = HudmapItemWaypointState.Unknown;
 
     public enum WaypointTexture
     {
@@ -89,7 +90,7 @@ public class HudmapItemWaypoint : HudmapItem
     /// </summary>
     private HudmapItemWaypointState GetCurrentState()
     {
-        if(waypoints.ShowOnlyActiveOnMap && (index >= 0 && index != waypoints.TargetWaypoint))
+        if(waypoints.ShowOnlyActive && (index >= 0 && index != waypoints.TargetWaypoint))
         {
             return HudmapItemWaypointState.Hidden;
         }

@@ -20,15 +20,17 @@ public enum RaceType
     Unordered,
 
     /// <summary>
-    /// ReInit layout. Point 0 is a passive start gate: it's shown but never targeted,
-    /// hit or cleared. The rest are checkpoints hit in any order, and the last point
-    /// is the finish line, hidden and locked until every checkpoint is hit.
+    /// ReInit layout. Point 0 is the spawn point, supplying the start position and
+    /// heading; it's never targeted, hit or drawn. The rest are checkpoints hit in
+    /// any order, and the last point is the finish line, hidden and locked until
+    /// every checkpoint is hit.
     /// </summary>
     Stunt1,
 
     /// <summary>
-    /// ReInit layout. Every point including point 0 is a checkpoint, hit strictly in
-    /// sequence. No finish line: the lap ends when the last one in the order is hit.
+    /// ReInit layout. Point 0 is the spawn point, supplying the start position and
+    /// heading; it's never targeted, hit or drawn. The rest are checkpoints hit
+    /// strictly in sequence. No finish line: the lap ends when the last one is hit.
     /// </summary>
     Stunt2,
 }
@@ -50,10 +52,23 @@ public class MMWaypoints : MonoBehaviour
     /// </summary>
     private readonly List<WaypointObject> pool = new List<WaypointObject>();
 
+    /// <summary>
+    /// Which waypoints have been hit this lap, parallel to waypoints.
+    /// This is the race's progress state. WaypointObject.Active now means only
+    /// "drawn", so under ShowOnlyActive a waypoint can be live and dark at once.
+    /// </summary>
+    private readonly List<bool> cleared = new List<bool>();
+
     /// <summary>Waypoints InitStatic preallocated; a ReInit layout is truncated to fit.</summary>
     public int WaypointCapacity => pool.Count;
 
-    public bool ShowOnlyActiveOnMap = false;
+    /// <summary>
+    /// When set, only the current target waypoint is drawn; the others stay live and
+    /// hittable, they're just not shown in the world or on the hudmap. Belongs to the
+    /// layout, so it's chosen by ReInit and survives Reset.
+    /// </summary>
+    public bool ShowOnlyActive { get; private set; }
+
     public Vector4 StartPosition => startPos;
 
     public int TargetWaypoint => targetWaypoint;
@@ -67,15 +82,17 @@ public class MMWaypoints : MonoBehaviour
 
     /// <summary>
     /// Total waypoints the player has cleared across all laps, finish line crossings included.
-    /// Every lap clears exactly WaypointObjects.Count waypoints, except in Stunt1 races,
-    /// where the start gate is never cleared and a lap is one short.
+    /// Every lap clears exactly WaypointObjects.Count waypoints. In the ReInit layouts
+    /// (Stunt1, Stunt2) the start gate is counted at the start of the lap rather than
+    /// driven through, which is what the original gets from the parked car crossing its
+    /// plane on frame one.
     /// Matches mmWaypoints::NumClearedWaypoints, used as the player's score.
     /// </summary>
     public int NumClearedWaypoints => numClearedWaypoints;
 
     /// <summary>
     /// Number of checkpoints per lap: excludes the finish line if the race has one,
-    /// and the start gate in Stunt1 races. Checkpoints run from FirstCheckpointIndex
+    /// and the start gate in the ReInit layouts. Checkpoints run from FirstCheckpointIndex
     /// up to (but not including) CheckpointEndIndex.
     /// </summary>
     public int CheckpointCount => Mathf.Max(0, CheckpointEndIndex - FirstCheckpointIndex);
@@ -90,7 +107,7 @@ public class MMWaypoints : MonoBehaviour
             int hit = 0;
             for (int i = FirstCheckpointIndex; i < CheckpointEndIndex; i++)
             {
-                if (!waypoints[i].Active)
+                if (cleared[i])
                     hit++;
             }
             return hit;
@@ -147,6 +164,15 @@ public class MMWaypoints : MonoBehaviour
     private RaceType raceType = RaceType.Circuit;
 
     /// <summary>
+    /// Waypoints the car was already standing on when they came into play, by index.
+    /// ReInit and StartLap can drop a whole layout on top of a stationary car, and the
+    /// hit test is positional rather than swept, so without this every waypoint whose
+    /// plane crosses the car reports a hit on the next frame. An unarmed waypoint is
+    /// armed once the car is clear of it, and only then can it be hit.
+    /// </summary>
+    private readonly HashSet<int> unarmed = new HashSet<int>();
+
+    /// <summary>
     /// Suppresses hit testing entirely, the way the original's DisableUpdate flag does.
     /// Use it while the player is being teleported or a cutscene is running; there's no
     /// longer a stored last position, so nothing else needs to be primed afterwards.
@@ -168,10 +194,19 @@ public class MMWaypoints : MonoBehaviour
     private int FinishIndex => waypoints.Count - 1;
 
     /// <summary>
-    /// First waypoint that counts as a checkpoint. Stunt1 reserves index 0 as a
-    /// passive start gate, so its checkpoints begin at 1; every other type starts at 0.
+    /// True when point 0 of the layout is the spawn point rather than a checkpoint.
+    /// It supplies StartPosition's position and heading, and is never targeted, hit
+    /// or drawn. Both ReInit layouts work this way: SingleStunt resets the car onto
+    /// StartPosition, so the car begins the race standing inside point 0.
     /// </summary>
-    private int FirstCheckpointIndex => raceType == RaceType.Stunt1 ? 1 : 0;
+    private bool HasStartGate => raceType == RaceType.Stunt1 || raceType == RaceType.Stunt2;
+
+    /// <summary>
+    /// First waypoint that counts as a checkpoint. The ReInit layouts reserve index 0
+    /// as the start gate, so their checkpoints begin at 1; Init layouts start at 0,
+    /// their spawn point having been consumed by Init rather than kept as a waypoint.
+    /// </summary>
+    private int FirstCheckpointIndex => HasStartGate ? 1 : 0;
 
     /// <summary>One past the last checkpoint: the finish line's index, or the end of the list.</summary>
     private int CheckpointEndIndex => HasFinishLine ? FinishIndex : waypoints.Count;
@@ -257,6 +292,8 @@ public class MMWaypoints : MonoBehaviour
 
         // Nothing is in play until ReInit loads a layout, so Update stays idle
         waypoints.Clear();
+        cleared.Clear();
+        unarmed.Clear();
         targetWaypoint = -1;
         finished = false;
         numClearedWaypoints = 0;
@@ -270,9 +307,13 @@ public class MMWaypoints : MonoBehaviour
     /// last point mean is the race type's business (see Stunt1, Stunt2).
     /// Pooled objects past the end of the file are parked and deactivated.
     /// </summary>
-    public void ReInit(RaceType raceType, string city, string raceFile)
+    /// <param name="showOnlyActive">
+    /// Draw only the current target waypoint; see ShowOnlyActive.
+    /// </param>
+    public void ReInit(RaceType raceType, string city, string raceFile, bool showOnlyActive = false)
     {
         this.raceType = raceType;
+        this.ShowOnlyActive = showOnlyActive;
 
         var positions = new MMPositions();
         string raceFilePath = AssetManager.CombinePath("race", city, $"{raceFile}.csv");
@@ -312,8 +353,12 @@ public class MMWaypoints : MonoBehaviour
                 var prev = pool[i - 1];
                 if (prev.Heading == 0.0f)
                 {
-                    float heading = Mathf.Atan2(prevPosition.x - position.x,
-                                                prevPosition.z - position.z) * -Mathf.Rad2Deg;
+                    // Heading of the step from prev to this point. Negating both the
+                    // arguments and the result (as the original port did) mirrors the
+                    // angle instead of flipping it, which only agrees along +/-X and
+                    // leaves gates elsewhere turned across the course.
+                    float heading = Mathf.Atan2(position.x - prevPosition.x,
+                                                position.z - prevPosition.z) * Mathf.Rad2Deg;
                     prev.SetOrientation(heading);
                     prev.Move(); // already committed last iteration, re-commit with the new heading
                 }
@@ -325,19 +370,17 @@ public class MMWaypoints : MonoBehaviour
             waypoints.Add(wp);
         }
 
-        // Spares stay parked; Reset only activates what's in play
-        for (int i = count; i < pool.Count; i++)
-            pool[i].Deactivate();
-
         if (count > 0)
             startPos.w = pool[0].Heading;
 
+        // Spares are parked by RefreshVisibility, which Reset reaches via StartLap
         Reset();
     }
 
     public void Init(MMGame game, VehCar car, string city, string raceFile, int numLaps, bool reversed, RaceType raceType)
     {
         this.raceType = raceType;
+        this.ShowOnlyActive = false;
 
         string raceFilePath = AssetManager.CombinePath("race", city, $"{raceFile}waypoints.csv");
         if (AssetManager.Exists(raceFilePath))
@@ -408,8 +451,18 @@ public class MMWaypoints : MonoBehaviour
             // Circuit, Stunt2: only the current target counts. In Circuit the player
             // spawns on the finish line, but it isn't the target until every
             // checkpoint is hit.
-            if (waypoints[targetWaypoint].PlaneHit(car, back, front, halfExtents))
+            bool hit = waypoints[targetWaypoint].PlaneHit(car, back, front, halfExtents);
+
+            if (unarmed.Count > 0 && unarmed.Contains(targetWaypoint))
+            {
+                // Still standing on it from when it came into play; arm it once clear
+                if (!hit)
+                    unarmed.Remove(targetWaypoint);
+            }
+            else if (hit)
+            {
                 OnSequentialHit();
+            }
         }
         else
         {
@@ -417,7 +470,7 @@ public class MMWaypoints : MonoBehaviour
             // hitting the last checkpoint can't unlock and cross it in the same frame
             bool finishOpen = HasFinishLine && IsSelectable(FinishIndex);
 
-            // Unordered, UnorderedFinish, Stunt1: any active waypoint counts,
+            // Unordered, UnorderedFinish, Stunt1: any live waypoint counts,
             // target is just a guide
             for (int i = 0; i < waypoints.Count; i++)
             {
@@ -426,14 +479,23 @@ public class MMWaypoints : MonoBehaviour
                     if (!finishOpen)
                         continue;
                 }
-                else if (i < FirstCheckpointIndex || !waypoints[i].Active)
+                else if (i < FirstCheckpointIndex || cleared[i])
                 {
-                    // Below FirstCheckpointIndex is Stunt1's start gate: it's
-                    // visible, but it can't be hit or cleared
+                    // Below FirstCheckpointIndex is the start gate: it's part of
+                    // the layout, but it can't be hit or cleared
                     continue;
                 }
 
-                if (!waypoints[i].PlaneHit(car, back, front, halfExtents))
+                bool hit = waypoints[i].PlaneHit(car, back, front, halfExtents);
+
+                if (unarmed.Count > 0 && unarmed.Contains(i))
+                {
+                    if (!hit)
+                        unarmed.Remove(i);
+                    continue;
+                }
+
+                if (!hit)
                     continue;
 
                 // Stop if the lap/race ended, so freshly reactivated
@@ -470,6 +532,8 @@ public class MMWaypoints : MonoBehaviour
         }
         pool.Clear();
         waypoints.Clear();
+        cleared.Clear();
+        unarmed.Clear();
     }
 
     // ------------------------------------------------------------------
@@ -477,8 +541,8 @@ public class MMWaypoints : MonoBehaviour
     // ------------------------------------------------------------------
 
     /// <summary>
-    /// Restarts the race from lap 0 with every waypoint active
-    /// (except a hidden UnorderedFinish/Stunt1 finish line).
+    /// Restarts the race from lap 0 with every waypoint live
+    /// (except the ReInit layouts' start gate, which starts cleared).
     /// </summary>
     public void Reset()
     {
@@ -494,33 +558,128 @@ public class MMWaypoints : MonoBehaviour
         // are relative to the current lap rather than the whole race
         lapStartTime = (game != null) ? game.RunningTimer.Value : 0.0f;
 
-        // Only what's in play is activated, so ReInit's spares stay parked.
-        // Stunt1's start gate is activated too: it's shown, just never hittable.
-        foreach (var wp in waypoints)
-            wp.Activate();
+        cleared.Clear();
+        for (int i = 0; i < waypoints.Count; i++)
+            cleared.Add(false);
 
-
-        // Stunt1: point 0 is the spawn, not a gate — it starts cleared, which is
-        // why the original's finish test reads NumClearedWaypoints == N-1
-        if (raceType == RaceType.Stunt1 && waypoints.Count > 0)
+        // Stunt1, Stunt2: point 0 is the spawn, not a gate, so it starts cleared and
+        // the first checkpoint is 1. The original leaves this to the hit test — the
+        // parked car is straddling point 0's plane on frame one — but that can't be
+        // told apart from a layout dropped on a stationary car, so it's done here.
+        // The count guard keeps a degenerate one-point layout from starting with
+        // nothing live and no way to reach CompleteLap.
+        if (HasStartGate && waypoints.Count > 1)
         {
-            waypoints[0].Deactivate();
+            cleared[0] = true;
             numClearedWaypoints++;
-        }
 
-        // UnorderedFinish, Stunt1: the finish line stays hidden until every checkpoint is hit
-        if (HasHiddenFinish && CheckpointCount > 0)
-            waypoints[FinishIndex].Deactivate();
-
-        if (raceType == RaceType.Stunt1 && waypoints.Count > 0)
-        {
-            targetWaypoint = 1;
+            targetWaypoint = -1;
+            SetTarget(1);
         }
         else
         {
             targetWaypoint = -1;
-            targetWaypoint = SelectNextTarget();
+            SetTarget(SelectNextTarget());
         }
+
+        // The car hasn't moved, so anything already crossing it must not count
+        ArmWaypoints();
+    }
+
+    /// <summary>
+    /// Single funnel for the target, so visibility follows it under ShowOnlyActive.
+    /// </summary>
+    private void SetTarget(int index)
+    {
+        targetWaypoint = index;
+        RefreshVisibility();
+    }
+
+    // ------------------------------------------------------------------
+    // Visibility (WaypointObject.Active means "drawn", nothing more)
+    // ------------------------------------------------------------------
+
+    /// <summary>
+    /// Whether a waypoint in play should be drawn. Hit waypoints go dark, a hidden
+    /// finish line stays dark until the last checkpoint, and under ShowOnlyActive
+    /// everything but the current target is dark as well.
+    /// </summary>
+    private bool IsVisible(int index)
+    {
+        if (index < 0 || index >= waypoints.Count)
+            return false;
+
+        // Also covers the ReInit layouts' start gate, which starts cleared
+        if (cleared[index])
+            return false;
+
+        // UnorderedFinish, Stunt1: the finish line is hidden until every checkpoint is hit
+        if (HasHiddenFinish && index == FinishIndex && AnyCheckpointsRemaining())
+            return false;
+
+        return !ShowOnlyActive || index == targetWaypoint;
+    }
+
+    private void RefreshVisibility()
+    {
+        for (int i = 0; i < waypoints.Count; i++)
+        {
+            if (IsVisible(i))
+                waypoints[i].Activate();
+            else
+                waypoints[i].Deactivate();
+        }
+
+        // ReInit's spares aren't in play, so they're never drawn
+        for (int i = waypoints.Count; i < pool.Count; i++)
+            pool[i].Deactivate();
+    }
+
+    // ------------------------------------------------------------------
+    // Arming (waypoints that came into play underneath the car)
+    // ------------------------------------------------------------------
+
+    /// <summary>
+    /// Marks every live waypoint the car is currently crossing as unarmed, so a layout
+    /// dropped on a stationary car (ReInit between stunt events, a lap rollover)
+    /// doesn't register the whole set as hits on the next frame.
+    /// </summary>
+    private void ArmWaypoints()
+    {
+        unarmed.Clear();
+
+        if (playerCar == null || waypoints.Count == 0)
+            return;
+
+        Transform car = playerCar.transform;
+        var halfExtents = playerCar.VehCarSim.InertiaBox * 0.5f;
+        GetPlayerHitSegment(car, halfExtents, out var back, out var front);
+
+        for (int i = FirstCheckpointIndex; i < waypoints.Count; i++)
+        {
+            if (cleared[i])
+                continue;
+
+            if (waypoints[i].PlaneHit(car, back, front, halfExtents))
+                unarmed.Add(i);
+        }
+    }
+
+    /// <summary>
+    /// Marks one waypoint unarmed if the car is already crossing it. Used when the
+    /// finish line unlocks under a car that happens to be sitting on its plane.
+    /// </summary>
+    private void TryArm(int index)
+    {
+        if (playerCar == null || index < 0 || index >= waypoints.Count)
+            return;
+
+        Transform car = playerCar.transform;
+        var halfExtents = playerCar.VehCarSim.InertiaBox * 0.5f;
+        GetPlayerHitSegment(car, halfExtents, out var back, out var front);
+
+        if (waypoints[index].PlaneHit(car, back, front, halfExtents))
+            unarmed.Add(index);
     }
 
     // ------------------------------------------------------------------
@@ -599,7 +758,7 @@ public class MMWaypoints : MonoBehaviour
 
         int next = SelectNextWaypoint();
         if (next >= 0)
-            targetWaypoint = next;
+            SetTarget(next);
     }
 
     /// <summary>
@@ -612,7 +771,7 @@ public class MMWaypoints : MonoBehaviour
 
         int closest = SelectNextClosestWaypoint();
         if (closest >= 0)
-            targetWaypoint = closest;
+            SetTarget(closest);
     }
 
     // ------------------------------------------------------------------
@@ -693,12 +852,13 @@ public class MMWaypoints : MonoBehaviour
     // ------------------------------------------------------------------
 
     /// <summary>
-    /// Stunt1: index 0 is the start gate and is never selectable.
+    /// Stunt1, Stunt2: index 0 is the start gate and is never selectable.
     /// Races with a finish line (Circuit, UnorderedFinish, Stunt1): checkpoints are
-    /// selectable while active, and the finish line only becomes selectable once every
-    /// checkpoint is hit. Its Active flag is ignored here: in Circuit races it's always
-    /// shown, in UnorderedFinish and Stunt1 races it's hidden until it unlocks.
-    /// Unordered, Stunt2: no finish line, every waypoint is selectable while active.
+    /// selectable until they're hit, and the finish line only becomes selectable once
+    /// every checkpoint is hit.
+    /// Unordered, Stunt2: no finish line, every waypoint is selectable until it's hit.
+    /// Whether a waypoint is drawn has no say here, so ShowOnlyActive doesn't
+    /// change what can be targeted or hit.
     /// </summary>
     private bool IsSelectable(int index)
     {
@@ -708,18 +868,18 @@ public class MMWaypoints : MonoBehaviour
         if (HasFinishLine && index == FinishIndex)
             return !AnyCheckpointsRemaining();
 
-        return waypoints[index].Active;
+        return !cleared[index];
     }
 
     /// <summary>
     /// Only meaningful for races with a finish line (excludes the last waypoint,
-    /// and Stunt1's start gate).
+    /// and the start gate).
     /// </summary>
     private bool AnyCheckpointsRemaining()
     {
         for (int i = FirstCheckpointIndex; i < FinishIndex; i++)
         {
-            if (waypoints[i].Active)
+            if (!cleared[i])
                 return true;
         }
         return false;
@@ -729,7 +889,7 @@ public class MMWaypoints : MonoBehaviour
     {
         for (int i = FirstCheckpointIndex; i < waypoints.Count; i++)
         {
-            if (waypoints[i].Active)
+            if (!cleared[i])
                 return true;
         }
         return false;
@@ -748,14 +908,14 @@ public class MMWaypoints : MonoBehaviour
         numClearedWaypoints++;
 
         // Circuit: crossed the finish line back at the spawn point
-        // (never deactivated, so it isn't cleared here)
+        // (never marked cleared, so it stays drawn all lap)
         if (HasFinishLine && targetWaypoint == FinishIndex)
         {
             CompleteLap();
             return;
         }
 
-        waypoints[targetWaypoint].Deactivate();
+        cleared[targetWaypoint] = true;
 
         // Stunt2: no finish line, the lap ends once the last waypoint in the order is hit
         if (!HasFinishLine && !AnyWaypointsRemaining())
@@ -765,8 +925,11 @@ public class MMWaypoints : MonoBehaviour
         }
 
         game.PlaySound(GameSound.HitWaypoint);
+        if (game.SpeechAudio != null) game.SpeechAudio.PlayCheckpoint(targetWaypoint);
         ShowSplitTime();
-        targetWaypoint = SelectNextWaypoint();
+
+        // One refresh covers both the waypoint just cleared and the new target
+        SetTarget(SelectNextWaypoint());
     }
 
     /// <summary>
@@ -784,11 +947,12 @@ public class MMWaypoints : MonoBehaviour
             return true;
         }
 
-        waypoints[index].Deactivate();
+        cleared[index] = true;
 
-        // Last checkpoint hit: reveal the finish line
+        // Last checkpoint hit: the finish line is now live. If the car is already
+        // standing on it, hold it until the car is clear so it has to be crossed.
         if (HasFinishLine && !AnyCheckpointsRemaining())
-            waypoints[FinishIndex].Activate();
+            TryArm(FinishIndex);
 
         // With a finish line, the lap only ends at the finish.
         // Without one, it ends when every checkpoint is hit.
@@ -796,13 +960,14 @@ public class MMWaypoints : MonoBehaviour
         if (!lapDone)
         {
             game.PlaySound(GameSound.HitWaypoint);
+            if (game.SpeechAudio != null) game.SpeechAudio.PlayCheckpoint(targetWaypoint);
             ShowSplitTime();
 
             // Always retarget to the closest selectable waypoint, even if the
-            // previous target is still active. The player has moved, so the
+            // previous target is still live. The player has moved, so the
             // old target may no longer be the nearest one. Once all checkpoints
             // are hit in an UnorderedFinish or Stunt1 race, this picks the finish line.
-            targetWaypoint = SelectNextClosestWaypoint();
+            SetTarget(SelectNextClosestWaypoint());
 
             return false;
         }
@@ -831,6 +996,6 @@ public class MMWaypoints : MonoBehaviour
 
         // Final crossing: no split or lap message, the results screen takes over
         finished = true;
-        targetWaypoint = -1; // race over, stop checking
+        SetTarget(-1); // race over, stop checking
     }
 }

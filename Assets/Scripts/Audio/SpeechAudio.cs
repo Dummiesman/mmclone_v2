@@ -2,7 +2,9 @@
 using System.Collections;
 using System.Collections.Generic;
 using System.IO;
+using System.Security;
 using UnityEngine;
+using static DirectMusicLite.DlsSynth;
 
 public class SpeechAudio : MonoBehaviour
 {
@@ -91,6 +93,8 @@ public class SpeechAudio : MonoBehaviour
     private MMTimeOfDay initTime;
     private MMWeather initWeather;
     private int initRace = -1;
+
+    private readonly List<int> checkpointIndexInfo = new List<int>();
 
     private void Awake()
     {
@@ -249,6 +253,19 @@ public class SpeechAudio : MonoBehaviour
     public void PlayDamagePenalty()
     {
         PlayCat("DAMAGEPENALTY");
+    }
+
+    public void PlayCheckpoint(int index)
+    {
+        if (index < 0 || index >= checkpointIndexInfo.Count)
+            return;
+
+        int catSuffix = checkpointIndexInfo[index];
+        if(catSuffix >= 0)
+        {
+            int catIndex = catSuffix - 1;
+            PlayCat("CHECKPOINT", catIndex);
+        }
     }
 
     public int GetNumVoiceVariants(string city)
@@ -442,6 +459,31 @@ public class SpeechAudio : MonoBehaviour
         }
     }
 
+    public void LoadCheckpointIndexInfo()
+    {
+        checkpointIndexInfo.Clear();
+        string audioFolder = GetVoiceFolder(initPrefix, initVoice);
+        string infoCsvPath = AssetManager.CombinePath("aud", "spchdata", audioFolder, "cc_cpoint_indexinfo.csv");
+        if(AssetManager.Exists(infoCsvPath))
+        {
+            var csv = AssetManager.OpenCSV(infoCsvPath);
+            csv.PrepareHeader();
+            while(!csv.EOF())
+            {
+                csv.PrepareLine();
+                if (int.TryParse(csv[0], out var index))
+                {
+                    checkpointIndexInfo.Add(index);
+                }
+            }
+        }
+    }
+
+    private void LoadCheckpointWaveInfo()
+    {
+        LoadGroup("cc_cpoint_waveinfo");
+    }
+
     public bool SpeechDataExists(string prefix, int voice)
     {
         return AssetManager.Exists(
@@ -565,7 +607,7 @@ public class SpeechAudio : MonoBehaviour
         if (crashCourse)
         {
             // Crash Course has one csv per lesson (ccs/ccs01, ccl/ccl04, ...)
-            // and nothing else: no vehicle, weather or time-of-day chatter.
+            // and an index info file on race index 4
             string raceCsv = GetCrashCourseCsv(prefix, raceNumber);
 
             if (!TryLoadCatData(prefix, voice, raceCsv))
@@ -573,6 +615,13 @@ public class SpeechAudio : MonoBehaviour
                 Debug.LogWarning(
                     $"Crash Course speech csv {prefix}/{raceCsv}.csv is missing."
                 );
+            }
+
+            if (raceNumber == 4)
+            {
+                // load checkpoint waves for "The Knowledge"
+                LoadCheckpointWaveInfo();
+                LoadCheckpointIndexInfo();
             }
 
             return;
