@@ -1,5 +1,6 @@
 ﻿using UnityEngine;
 
+[DefaultExecutionOrder(1000)]
 public class HudArrow : MonoBehaviour
 {
     public Vector3 Target;
