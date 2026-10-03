@@ -323,6 +323,8 @@ public class PlayerConfig
     {
         GameState.ViewDistance = Gfx.farClip;
         GameState.ObjectDetail = Gfx.objectDetail;
+        GameState.VehicleReflections = Gfx.enableReflections;
+        GameState.TexturedSky = Gfx.enableSky;
     }
 
     public void SetVehicle()

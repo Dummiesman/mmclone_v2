@@ -33,6 +33,8 @@ public class GameState
     // GFX
     public static float ViewDistance = 1000.0f;
     public static MMObjectDetail ObjectDetail = MMObjectDetail.VeryHigh;
+    public static bool VehicleReflections = true;
+    public static bool TexturedSky = true;
 
     // INPUT
     public static MMControllerType ControllerType = MMControllerType.Keyboard;
