@@ -9,6 +9,10 @@ namespace MM2.AI
         private const float ApproachDecel = 2f;
         private const float PathStep = 1f;
 
+        // Track initial road
+        private bool haveFirstRoad = false;
+        private RoadPositioningInfo firstRoad;
+
         // Player braking
         private const float PlayerStopTime = 0.75f;                               // seconds to stop from full speed
         private const float PlayerBrakeDecel = CableCarSpeed / PlayerStopTime; // 11 m/s^2
@@ -33,8 +37,6 @@ namespace MM2.AI
         public override float RearBumperDistance => vehicleData.CG.z - (vehicleData.Size.z * 0.5f);
         public override float LeftSideDistance => vehicleData.CG.x - (vehicleData.Size.x * 0.5f);
         public override float RightSideDistance => vehicleData.CG.x + (vehicleData.Size.x * 0.5f);
-
-        public float HalfWidth => 0.5f * (RightSideDistance - LeftSideDistance);
 
         // intersection state
         private bool inIntersection = false;
@@ -259,6 +261,12 @@ namespace MM2.AI
 
         public override void SetRoad(RoadPositioningInfo newRoadInfo)
         {
+            if (!haveFirstRoad)
+            {
+                firstRoad = newRoadInfo;
+                haveFirstRoad = true;
+            }
+
             // Repositioned mid-crossing: drop out of the intersection cleanly.
             if (inIntersection)
                 LeaveIntersectionState();
@@ -283,6 +291,8 @@ namespace MM2.AI
         {
             base.Reset();
             vehicleModel.Reset();
+            SetRoad(firstRoad);
+            PositionAlongPath(0.0f);
         }
 
         public override void Update()
@@ -323,6 +333,7 @@ namespace MM2.AI
             base.Activate();
             audio.enabled = true;
             UpdateRoom();
+            vehicleModel.gameObject.SetActive(true);
         }
 
         public override void Deactivate()
@@ -341,6 +352,7 @@ namespace MM2.AI
             roomId = 0;
             audio.enabled = false;
             vehicleModel.Level.MoveToRoom(vehicleModel, 0);
+            vehicleModel.gameObject.SetActive(false);
         }
 
         public AICableCar(AINetwork network) : base(network)
@@ -357,8 +369,7 @@ namespace MM2.AI
             NullNextRoad();
 
             var vehicleBanger = CableCarInstance.Create(network.Level, this, typeName);
-            vehicleBanger.Unbreakable = true; // for now they're breaking instantly, todo
-
+            
             var vehicleObj = vehicleBanger.gameObject;
             audio = vehicleObj.AddComponent<CableCarAudio>();
             audio.Init();

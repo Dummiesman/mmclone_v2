@@ -1487,10 +1487,6 @@ namespace MM2.AI
                     entity.Deactivate();
                 }
             }
-            foreach(var entity in cableCars)
-            {
-                entity.Reset();
-            }
             foreach(var cop in policeCars)
             {
                 cop.Reset();
@@ -1510,6 +1506,10 @@ namespace MM2.AI
             foreach (var road in shortcuts)
             {
                 road.Reset();
+            }
+            foreach (var entity in cableCars)
+            {
+                entity.Reset(); // reset cable cars here so they return to their original roads
             }
             policeForce.Reset();
             activeCullingRoom = -1;
