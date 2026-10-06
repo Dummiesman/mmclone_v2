@@ -24,6 +24,7 @@ namespace MM2.AI
         public abstract float RightSideDistance { get; }
         public abstract float FrontBumperDistance { get; }
         public abstract float RearBumperDistance { get; }
+        public float HalfWidth => 0.5f * (RightSideDistance - LeftSideDistance);
 
         public float Radius
         {

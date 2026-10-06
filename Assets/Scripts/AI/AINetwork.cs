@@ -1673,7 +1673,7 @@ namespace MM2.AI
             // now init the pool
             for (int i = 0; i < size; i++)
             {
-                float spawnVal = UnityEngine.Random.value;
+                float spawnVal = random.value;
                 string spawnType = null;
 
                 foreach (var trafficType in orderedTrafficTypes)
