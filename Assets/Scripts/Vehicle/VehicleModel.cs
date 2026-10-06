@@ -19,6 +19,11 @@ public class VehicleModel : LevelInstance
     private readonly GameObject[] wheels = new GameObject[4];
     private readonly GameObject[] spinWheels = new GameObject[SpinWheelParts.Length];
     private readonly bool[] wheelBlurred = new bool[4];
+
+    private readonly GameObject[] extraWheels = new GameObject[2];
+    private readonly float[] extraWheelOffsets = new float[2];
+    private readonly bool[] extraWheelBlurred = new bool[2];
+
     private readonly GameObject[] fenders = new GameObject[2];
     private readonly Vector3[] fenderPivots = new Vector3[2];
     private readonly GameObject[] variantObjects = new GameObject[VariantCount];
@@ -94,6 +99,14 @@ public class VehicleModel : LevelInstance
     private static readonly int[] AxleWheelsLeft = { 0, 2 };
     private static readonly int[] AxleWheelsRight = { 1, 3 };
 
+    /// <summary>
+    /// whl4/whl5 have no sim wheel of their own. They're posed from the rear
+    /// pair and slid back along the body axis by the gap between their authored
+    /// pivot and that wheel's center, which is how the original did it.
+    /// </summary>
+    private static readonly int[] ExtraWheelSources = { 2, 3 };
+    private static readonly int[] ExtraWheelSpinParts = { 4, 5 };   // swhl4, swhl5
+
     /// <summary> Breakable parts </summary>
     private static readonly string[] BreakableParts =
      {
@@ -119,8 +132,7 @@ public class VehicleModel : LevelInstance
 
     /// <summary>
     /// Blurred wheel copies. 0-3 shadow the driven wheels and are swapped in
-    /// once the wheel spins past WheelBlurRotationRate; 4/5 pair with whl4/whl5,
-    /// which have no sim wheel behind them yet, so they stay hidden.
+    /// once the wheel spins past WheelBlurRotationRate;
     /// </summary>
     private static readonly string[] SpinWheelParts =
     {
@@ -423,6 +435,8 @@ public class VehicleModel : LevelInstance
                 case "whl1": wheels[1] = part.Object; break;
                 case "whl2": wheels[2] = part.Object; break;
                 case "whl3": wheels[3] = part.Object; break;
+                case "whl4": extraWheels[0] = part.Object; break;
+                case "whl5": extraWheels[1] = part.Object; break;
 
                 case "fndr0":
                     fenders[0] = part.Object;
@@ -480,7 +494,7 @@ public class VehicleModel : LevelInstance
                         // Parts this VehicleModel has no runtime driver for
                         // (hlight, slight0/1, bodydamage, siren0/1, decal,
                         // driver, engine, break*, hub0-5, shub0-5,
-                        // trailer_hitch, whl4/5) - hidden by default rather
+                        // trailer_hitch) - hidden by default rather
                         // than left inert and visible. A future feature
                         // (driver model, damage states, extra wheels) can
                         // SetActive(true) it once it's wired up.
@@ -503,6 +517,42 @@ public class VehicleModel : LevelInstance
         // Blurred copies start stowed; nothing has spun up yet.
         for (int i = 0; i < wheelBlurred.Length; i++)
             wheelBlurred[i] = false;
+        for (int i = 0; i < extraWheelBlurred.Length; i++)
+            extraWheelBlurred[i] = false;
+
+        InitExtraWheels();
+    }
+
+    /// <summary>
+    /// Captures the pivot gap for the extra non-driven wheels. They load with
+    /// applyPivot: true, so the authored pivot is sitting on the Transform, and
+    /// the source wheel's Center is the same quantity in the same space - the
+    /// difference along the body axis is all that has to survive to draw time.
+    /// A vehicle whose source wheel doesn't exist hides the part rather than
+    /// drawing it at the origin.
+    /// </summary>
+    private void InitExtraWheels()
+    {
+        var sim = vehicle.VehCarSim;
+
+        for (int i = 0; i < extraWheels.Length; i++)
+        {
+            extraWheelBlurred[i] = false;
+
+            var obj = extraWheels[i];
+            if (obj == null) continue;
+
+            int source = ExtraWheelSources[i];
+            if (sim == null || sim.Wheels == null || source >= sim.Wheels.Length)
+            {
+                obj.SetActive(false);
+                extraWheels[i] = null;
+                continue;
+            }
+
+            extraWheelOffsets[i] = obj.transform.localPosition.z - sim.Wheels[source].Center.z;
+            obj.SetActive(true);
+        }
     }
 
     /// <summary>
@@ -787,6 +837,7 @@ public class VehicleModel : LevelInstance
     {
         UpdateBody();
         UpdateWheels();
+        UpdateExtraWheels();
         UpdateFenders();
         UpdateLights();
         UpdateShadow();
@@ -849,7 +900,8 @@ public class VehicleModel : LevelInstance
 
             // Decide which copy is on first, so whichever one ends up visible
             // is posed below before it draws.
-            UpdateWheelBlur(i, simWheel.RotationRate, simWheel.LocalPosition, simWheel.LocalRotation);
+            UpdateWheelBlur(wheels[i], spinWheels[i], ref wheelBlurred[i],
+                simWheel.RotationRate, simWheel.LocalPosition, simWheel.LocalRotation);
 
             if (wheels[i] == null) continue;
 
@@ -863,37 +915,64 @@ public class VehicleModel : LevelInstance
     }
 
     /// <summary>
+    /// Poses whl4/whl5 off the rear wheels. Lateral position, ride height and
+    /// spin are the source wheel's; only the body-axis position is the extra
+    /// wheel's own, carried over as the pivot gap measured at load.
+    /// </summary>
+    private void UpdateExtraWheels()
+    {
+        var sim = vehicle.VehCarSim;
+        if (sim == null || sim.Wheels == null) return;
+
+        for (int i = 0; i < extraWheels.Length; i++)
+        {
+            var obj = extraWheels[i];
+            if (obj == null) continue;
+
+            var simWheel = sim.Wheels[ExtraWheelSources[i]];
+
+            Vector3 pos = simWheel.LocalPosition;
+            pos.z += extraWheelOffsets[i];
+
+            UpdateWheelBlur(obj, spinWheels[ExtraWheelSpinParts[i]], ref extraWheelBlurred[i],
+                simWheel.RotationRate, pos, simWheel.LocalRotation);
+
+            var t = obj.transform;
+            t.localPosition = pos;
+            t.localRotation = simWheel.LocalRotation;
+        }
+    }
+
+    /// <summary>
     /// Swaps a wheel between its solid mesh and its blurred swhl copy once the
     /// spin passes WheelBlurRotationRate. The blurred copy takes the hub
     /// rotation rather than the full wheel rotation: the blur is baked into the
     /// texture, so spinning it as well just makes the smear rotate.
     /// Cars with no swhl for this wheel keep the solid mesh at all speeds.
     /// </summary>
-    private void UpdateWheelBlur(int index, float rotationRate, Vector3 localPosition, Quaternion localRotation)
+    private static void UpdateWheelBlur(GameObject solid, GameObject spin, ref bool blurred,
+        float rotationRate, Vector3 localPosition, Quaternion localRotation)
     {
-        var spin = spinWheels[index];
-
         if (spin == null)
         {
-            if (wheelBlurred[index])
+            if (blurred)
             {
-                wheelBlurred[index] = false;
-                if (wheels[index] != null) wheels[index].SetActive(true);
+                blurred = false;
+                if (solid != null) solid.SetActive(true);
             }
             return;
         }
 
-        float rate = Mathf.Abs(rotationRate);
-        bool blurred = rate > WheelBlurRotationRate;
+        bool wantBlur = Mathf.Abs(rotationRate) > WheelBlurRotationRate;
 
-        if (blurred != wheelBlurred[index])
+        if (wantBlur != blurred)
         {
-            wheelBlurred[index] = blurred;
-            if (wheels[index] != null) wheels[index].SetActive(!blurred);
-            spin.SetActive(blurred);
+            blurred = wantBlur;
+            if (solid != null) solid.SetActive(!wantBlur);
+            spin.SetActive(wantBlur);
         }
 
-        if (!blurred) return;
+        if (!wantBlur) return;
 
         var t = spin.transform;
         t.localPosition = localPosition;
@@ -1026,6 +1105,7 @@ public class VehicleModel : LevelInstance
 
         body = shadow = tlight = blight = rlight = null;
         for (int i = 0; i < wheels.Length; i++) wheels[i] = null;
+        for (int i = 0; i < extraWheels.Length; i++) extraWheels[i] = null;
         for (int i = 0; i < spinWheels.Length; i++) spinWheels[i] = null;
         for (int i = 0; i < wheelBlurred.Length; i++) wheelBlurred[i] = false;
         for (int i = 0; i < fenders.Length; i++) fenders[i] = null;
@@ -1080,7 +1160,11 @@ public class VehicleModel : LevelInstance
             wheelBlurred[i] = false;
             if (wheels[i] != null) wheels[i].SetActive(true);
         }
-
+        for (int i = 0; i < extraWheels.Length; i++)
+        {
+            extraWheelBlurred[i] = false;
+            if (extraWheels[i] != null) extraWheels[i].SetActive(true);
+        }
         for (int i = 0; i < spinWheels.Length; i++)
         {
             if (spinWheels[i] != null) spinWheels[i].SetActive(false);
