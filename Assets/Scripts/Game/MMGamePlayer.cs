@@ -145,7 +145,7 @@ public class MMGamePlayer : MonoBehaviour
         }
 
         // update music
-        if (GameState.AudioFlags.HasFlag(MMAudioFlags.MusicEnabled) && Car != null)
+        if (GameState.AudioFlags.HasFlag(MMAudioFlags.MusicEnabled) && Car != null && game.Music != null)
         {
             var policeForce = game.Level.AINetwork.PoliceForce;
             int numChasing = policeForce.GetNumChasers(Car);
@@ -185,6 +185,7 @@ public class MMGamePlayer : MonoBehaviour
                 {
                     timeInWater = 0.0f;
                     inWater = true;
+                    hitWaterHandlerCalled = false;
                     Car.Audio.PlaySplash();
 
                     // show water message
