@@ -4,6 +4,10 @@ namespace MM2.AI
 {
     public class AITrafficCar : AIRailEntity
     {
+        public AmbientHornAudio HornAudio => hornAudio;
+        public VoiceAudio VoiceAudio => voiceAudio;
+
+        // constants
         private const float SignalDistance = 30f; // start indicating this far before the road end
         private const float CableCarClearance = 0.75f;
         private const float CableCarSampleStep = 1f;
@@ -20,8 +24,8 @@ namespace MM2.AI
         private const float LaneChangeHeadway = 1f;         // extra meters of gap per m/s of closing speed
 
         // physics / accidents
-        private const float DefaultMass = 1200f;            // TODO: use vehicleData's mass if it has one
         public const float KnockOffImpulse = 100f;          // N*s; softer hits just bump off us (AITrafficCarBody caps contacts just above this)
+        private const float HitRestitution = 0.15f;         // 0 = we end up moving with whatever hit us, 1 = bouncy
 
         // avoiding oncoming players
         private const float AvoidLookAhead = 30f;           // meters
@@ -59,6 +63,7 @@ namespace MM2.AI
         private AITrafficCarBody body;
         private AmbientVehicleAudio audio;
         private AmbientHornAudio hornAudio;
+        private VoiceAudio voiceAudio;
 
         // goals
         private RailGoal goal;
@@ -74,6 +79,7 @@ namespace MM2.AI
         // Knocked loose since the last Update. The body goes dynamic straight away in the collision callback;
         // the lane/goal side waits for Update rather than touching lanes from inside physics.
         private bool hitPending;
+        private float hitForce;
 
         // steering set by goals that move us off the plain rail pose (swerving, regaining)
         private float steerCurvature;
@@ -145,6 +151,8 @@ namespace MM2.AI
         public bool InIntersection => inIntersection;
         public bool IsChangingLanes => laneChangeState != LaneChangeState.None;
         public bool IsOnRoad => RoadInfo.RoadInstance != null;
+        public bool IsOnRail => IsOnRoad || inIntersection;
+        public bool HasNextRoad => NextRoadInfo.RoadInstance != null;
         public float DistanceToRoadEnd => IsOnRoad ? RoadInfo.RoadInstance.Road.Length - CurrentPathDistance : 0f;
 
         /// Anything but a car that's already loose can be knocked off (including one creeping back onto the rail).
@@ -242,13 +250,18 @@ namespace MM2.AI
             return UpdateRoad(allowLaneChanges);
         }
 
+        private bool EntityCanBeThreat(AIEntity entity)
+        {
+            if (Mathf.Abs(entity.Position.y - position.y) >= 5.0f)
+                return false; // below or above
+            return Vector3.Distance(entity.Position, position) <= AvoidLookAhead;
+        }
+
         /// Is a player about to hit us head on? Picks the nearest one in our path.
-        public bool FindOncomingThreat(out Vector3 threatPosition)
+        public bool FindOncomingThreat(out Vector3 threatPosition, out AIEntity threatEntity)
         {
             threatPosition = default;
-
-            if (inIntersection || RoadInfo.RoadInstance == null || laneChangeState != LaneChangeState.None)
-                return false;
+            threatEntity = null;
 
             // Stopped or crawling (queued at lights, parked behind a wreck): don't react to anything.
             if (speed < AvoidMinSpeed)
@@ -262,11 +275,8 @@ namespace MM2.AI
 
             foreach (var player in network.VehicleProxies)
             {
-                if (player.RoadInfo.RoadInstance != RoadInfo.RoadInstance)
-                    continue; // not on our road
-
-                if (Mathf.Abs(player.Position.y - position.y) >= 5.0f)
-                    continue; // below or above
+                if(!EntityCanBeThreat(player)) 
+                    continue;
 
                 Vector3 toPlayer = player.Position - position;
                 toPlayer.y = 0f;
@@ -286,6 +296,7 @@ namespace MM2.AI
 
                 bestAhead = ahead;
                 threatPosition = player.Position;
+                threatEntity = player;
             }
 
             return !float.IsPositiveInfinity(bestAhead);
@@ -340,11 +351,6 @@ namespace MM2.AI
             if (!body.IsDynamic)
                 body.MakeDynamic();
             SetGoal(AccidentGoal);
-        }
-
-        public void PlayHorn()
-        {
-            hornAudio.PlayRandomHorn();
         }
 
         // ---------------------------------------------------------------------------------------------
@@ -637,7 +643,8 @@ namespace MM2.AI
 
             // Any rigidbody can knock us loose (player, wrecks, props). Wrecks keep their rail slot, so traffic
             // queues behind them rather than driving into them, which keeps chain reactions from snowballing.
-            if (collision.rigidbody == null)
+            var other = collision.rigidbody;
+            if (other == null)
                 return;
 
             // Capped just above the threshold by AITrafficCarBody's contact modifier, so a hard hit reads as
@@ -645,8 +652,47 @@ namespace MM2.AI
             if (collision.impulse.magnitude < KnockOffImpulse)
                 return;
 
+            var rb = body.Rb;
+            float myMass = rb.mass;
+            float otherMass = other.mass;
+            float totalMass = myMass + otherMass;
+            if (totalMass <= 0f)
+                return;
+
+            float reducedMass = (myMass * otherMass) / totalMass;
+
+            // Average the contacts: a flat panel hit gives several, and one arbitrary corner point would spin us.
+            int count = collision.contactCount;
+            Vector3 point = Vector3.zero;
+            Vector3 normal = Vector3.zero;
+            for (int i = 0; i < count; i++)
+            {
+                var c = collision.GetContact(i);
+                point += c.point;
+                normal += c.normal;
+            }
+            point /= count;
+            normal = normal.sqrMagnitude > 1e-6f ? normal.normalized : Vector3.up;
+
+            // We're still kinematic, so rb.velocity reads zero: our velocity is the rail pose's.
+            // Theirs comes off the rigidbody, at the contact point so a spinning wreck reads right.
+            Vector3 myVelocity = (rotation * Vector3.forward) * speed;
+            Vector3 relativeVelocity = myVelocity - other.GetPointVelocity(point);
+
+            Vector3 impulse = relativeVelocity * reducedMass;
+
+            // The shove we should have taken. ContactPoint.normal points at us, but flip it if the averaging
+            // or a weird contact set turned it around, so it always pushes us away from them.
+            if (Vector3.Dot(relativeVelocity, normal) > 0f)
+                normal = -normal;
+            float closing = -Vector3.Dot(relativeVelocity, normal);
+            Vector3 hitImpulse = normal * ((1f + HitRestitution) * reducedMass * closing);
+
             body.MakeDynamic();
+            body.DepenetrateFrom(collision.collider);
+
             hitPending = true;
+            hitForce = Mathf.Abs(impulse.x) + Mathf.Abs(impulse.y) + Mathf.Abs(impulse.z);
         }
 
         private void ProcessPendingHit()
@@ -661,6 +707,11 @@ namespace MM2.AI
 
         private void KnockOffRail()
         {
+            if (voiceAudio != null)
+            { 
+                voiceAudio.PlayCollisionReaction(hitForce);
+            }
+
             // The body is where we are now. Take its pose here, not a frame later, so nothing reading
             // Position (wheels, lights, audio) sees a jump halfway through a goal.
             SyncFromBody();
@@ -772,7 +823,7 @@ namespace MM2.AI
             bool rightOk = right != null && IsLaneClearForChange(right);
 
             if (leftOk && rightOk)
-                offset = Random.value < 0.5f ? RailIndexStepLeft : -RailIndexStepLeft;
+                offset = network.Random.value < 0.5f ? RailIndexStepLeft : -RailIndexStepLeft;
             else if (leftOk)
                 offset = RailIndexStepLeft;
             else if (rightOk)
@@ -1052,7 +1103,7 @@ namespace MM2.AI
             if (IsOffRail)
                 curvature = steerCurvature; // physics or the regain curve, whatever the rail underneath says
             else if (inIntersection)
-                curvature = GetCurveCurvature(intersectionDistance);
+                curvature = GetCurveCurvature(intersectionDistance) + steerCurvature; // curve, plus any swerve on top
             else if (laneChangeState == LaneChangeState.Changing)
                 curvature = laneChangeCurvature;
             else
@@ -1212,12 +1263,14 @@ namespace MM2.AI
             hitPending = false;
             steerCurvature = 0f;
             body.ResetForPool();
-
+            voiceAudio.Reset();
+            
             roomId = 0;
             lastSpeed = 0f;
             audio.enabled = false;
+            hornAudio.StopAllSounds();
             hornAudio.enabled = false;
-
+          
             vehicleModel.gameObject.SetActive(false);
         }
 
@@ -1241,13 +1294,24 @@ namespace MM2.AI
             vehicleModel.Load(typeName);
 
             body = vehicleObj.AddComponent<AITrafficCarBody>();
-            body.Init(this, vehicleData, DefaultMass);
+            body.Init(this, vehicleData, vehicleData.Mass);
 
-            audio = vehicleObj.AddComponent<AmbientVehicleAudio>();
+            // Audio objects
+            var audioObj = new GameObject("Audio");
+            audioObj.transform.SetParent(vehicleObj.transform, false);
+            audio = audioObj.AddComponent<AmbientVehicleAudio>();
             audio.Init(typeName, this);
 
-            hornAudio = vehicleObj.AddComponent<AmbientHornAudio>();
+            var hornAudioObj = new GameObject("HornAudio");
+            hornAudioObj.transform.SetParent(vehicleObj.transform, false);
+            hornAudio = hornAudioObj.AddComponent<AmbientHornAudio>();
             hornAudio.Init(typeName);
+
+            var voiceAudioObj = new GameObject("VoiceAudio");
+            voiceAudioObj.transform.SetParent(vehicleObj.transform, false);
+            voiceAudio = voiceAudioObj.AddComponent<VoiceAudio>();
+            voiceAudio.InitVehicle(network.Level.Name, typeName);
+            voiceAudio.SetEntity(this);
 
             DriveGoal = new RailGoalRandomDrive(this);
             AvoidGoal = new RailGoalAvoidAccident(this);

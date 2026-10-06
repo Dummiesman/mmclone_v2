@@ -11,6 +11,11 @@ namespace MM2.AI
         // threshold: enough to register the hit, not enough to stop the other body dead.
         private const float ContactImpulseCap = AITrafficCar.KnockOffImpulse * 1.2f;
 
+        // depenetration
+        private const float MaxDepenetrationStep = 1f;      // meters; a deeper overlap means something tunnelled
+        private const float DepenetrationSkin = 0.01f;      // leave a sliver of gap so we don't re-contact immediately
+        private const int DepenetrationPasses = 6;          // flattened pushes clear less per pass, so give it a few more
+
         // Collider ids of kinematic traffic cars. Written on the main thread only, read from physics worker
         // threads during the step (while the main thread is blocked in the simulation), so no lock needed.
         private static readonly HashSet<int> cappedColliders = new HashSet<int>();
@@ -77,10 +82,55 @@ namespace MM2.AI
             }
         }
 
+        /// Pushes us clear of 'theirCollider'. The solver won't: we're kinematic (so it never depenetrates us) and
+        /// the contact modifier caps the impulse, so by the time the hit registers we're already inside them.
+        public Vector3 DepenetrateFrom(Collider theirCollider)
+        {
+            if (theirCollider == null || !Box.enabled)
+                return Vector3.zero;
+
+            Vector3 away = Box.bounds.center - theirCollider.bounds.center;
+            away.y = 0f;
+            if (away.sqrMagnitude < 1e-6f)
+                away = transform.right; // dead centre on them: any way out will do
+            away.Normalize();
+
+            Vector3 theirPosition = theirCollider.transform.position;
+            Quaternion theirRotation = theirCollider.transform.rotation;
+            Vector3 offset = Vector3.zero;
+
+            // 'distance' is the depth along the shortest way out, so it's never more than we need along
+            // 'away': step by it and re-measure until we're clear.
+            for (int pass = 0; pass < DepenetrationPasses; pass++)
+            {
+                if (!Physics.ComputePenetration(
+                        Box, Box.transform.position + offset, Box.transform.rotation,
+                        theirCollider, theirPosition, theirRotation,
+                        out _, out float distance))
+                    break;
+
+                offset += away * (distance + DepenetrationSkin);
+
+                if (offset.magnitude > MaxDepenetrationStep)
+                {
+                    offset = away * MaxDepenetrationStep;
+                    break;
+                }
+            }
+
+            if (offset.sqrMagnitude < 1e-8f)
+                return Vector3.zero;
+
+            transform.position += offset;
+            Rb.position = transform.position;
+            return offset;
+        }
+
         public void MakeDynamic()
         {
             Rb.isKinematic = false;
             Rb.interpolation = RigidbodyInterpolation.Interpolate;
+            Rb.collisionDetectionMode = CollisionDetectionMode.ContinuousDynamic;
             SetWheelsEnabled(true);
             UpdateContactCap();
             Rb.angularVelocity = Vector3.zero;
@@ -97,6 +147,7 @@ namespace MM2.AI
             }
             Rb.isKinematic = true;
             Rb.interpolation = RigidbodyInterpolation.None;
+            Rb.collisionDetectionMode = CollisionDetectionMode.ContinuousSpeculative; // only continuous mode kinematic bodies support
             SetWheelsEnabled(false);
             UpdateContactCap();
         }
