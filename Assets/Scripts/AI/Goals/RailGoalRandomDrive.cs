@@ -12,8 +12,8 @@ namespace MM2.AI
         {
             car.DriveOnRail(true);
 
-            if (car.FindOncomingThreat(out Vector3 threat))
-                car.AvoidGoal.TryBegin(threat);
+            if (car.FindOncomingThreat(out Vector3 threat, out var threatEntity))
+                car.AvoidGoal.TryBegin(threatEntity);
         }
     }
 }
