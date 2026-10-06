@@ -42,7 +42,7 @@ public class AmbientHornAudio : MonoBehaviour
             while (!parser.EOF())
             {
                 parser.PrepareLine();
-                //reached end of pattern
+                // reached end of pattern
                 if (parser[0].ToLowerInvariant() == "horn play duration")
                     break;
 
@@ -54,7 +54,7 @@ public class AmbientHornAudio : MonoBehaviour
 
         public IEnumerator Play(AudioSource source)
         {
-            //stop first
+            // stop first
             source.enabled = true;
             source.Stop();
 
@@ -74,13 +74,13 @@ public class AmbientHornAudio : MonoBehaviour
                 }
             }
 
-            //stop again, we're done
+            // stop again, we're done
             source.Stop();
             source.enabled = false;
         }
     }
 
-    //
+    // 
     private IEnumerator PlayHornEnumerator(int index)
     {
         IsPlaying = true;
@@ -104,12 +104,13 @@ public class AmbientHornAudio : MonoBehaviour
 
     public void StopAllSounds()
     {
+        StopAllCoroutines();
         hornSource.Stop();
     }
 
     public void Init(string vehicleName)
     {
-        //find file
+        // find file
         CSVParser parser = null;
         if(AssetManager.Exists("aud", "cardata", "ambient", $"{vehicleName}_horn.csv"))
         {
@@ -120,14 +121,14 @@ public class AmbientHornAudio : MonoBehaviour
             parser = AssetManager.OpenCSV("aud", "cardata", "ambient", $"default_horn.csv");
         }
 
-        //file existed?
+        // file existed?
         if(parser == null)
         {
             Debug.LogError($"AmbientHornAudio Init failure! Trying to init {vehicleName}");
             return;
         }
 
-        //read things
+        // read things
         parser.PrepareLine();
         if(parser[0].ToLower() != "horn sample")
         {
@@ -135,14 +136,14 @@ public class AmbientHornAudio : MonoBehaviour
             return;
         }
 
-        //read in horn clip info
+        // read in horn clip info
         parser.PrepareLine();
         string sampleName = parser[0];
         float sampleVolume = FastFloatParser.Parse(parser[1]);
         float samplePitch  = FastFloatParser.Parse(parser[2]);
         hornStuckImpactForce = FastFloatParser.Parse(parser[3]);
 
-        //create audio source
+        // create audio source
         GameObject hornSourceObj = new GameObject(sampleName);
         hornSource = MMAudioMixer.CreateAudioSource(hornSourceObj);
         hornSource.clip = AudioAssetManager.LoadClip("horns", sampleName);
@@ -157,7 +158,7 @@ public class AmbientHornAudio : MonoBehaviour
         hornSource.enabled = false;
         hornSourceObj.transform.SetParent(this.transform, false);
 
-        //read in patterns
+        // read in patterns
         parser.PrepareLine();
         while (!parser.EOF())
         {
@@ -171,8 +172,6 @@ public class AmbientHornAudio : MonoBehaviour
                 break;
             }
         }
-
-        //DONE :)
     }
 
     private void OnDisable()
