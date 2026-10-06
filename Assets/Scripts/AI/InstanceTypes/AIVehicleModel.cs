@@ -441,7 +441,6 @@ public class AIVehicleModel : LevelInstance
         foreach (var shader in shaders.Shaders)
         {
             shader.Specular = Color.black;
-            shader.Ambient = Color.black;
             if (shader.Name.EndsWith("_dmg", StringComparison.Ordinal))
                 shader.Name = shader.Name.Substring(0, shader.Name.Length - 4);
         }

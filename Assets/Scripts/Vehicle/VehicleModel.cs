@@ -960,7 +960,6 @@ public class VehicleModel : LevelInstance
         foreach (var shader in shaders.Shaders)
         {
             shader.Specular = Color.black;
-            shader.Ambient = Color.black;
             if (shader.Name.EndsWith("_dmg", StringComparison.OrdinalIgnoreCase))
             {
                 shader.Name = shader.Name.Substring(0, shader.Name.Length - 4);
