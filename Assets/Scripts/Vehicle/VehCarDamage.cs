@@ -43,8 +43,14 @@ public class VehCarDamage : VehSubsystem
     private bool smokeSystemsCreated = false;
     private ParticleSim smokeSystem;
     private ParticleSim smokeSystem2;
+
+    private bool exhaustSystemsCreated = false;
+    private ParticleSim exhaustSystem;
+    private ParticleSim exhaustSystem2;
+    private float exhaustAccumulator = 0.0f;
+
     private ParticleBirthRule smokeRule;
-    
+
     private LineSparks sparks;
     private float sparkMultiplier = 16.0f;
 
@@ -60,6 +66,44 @@ public class VehCarDamage : VehSubsystem
 
     private bool isDamagedOut = false;
     private float damageResetCounter = 0f;
+
+    private ParticleSim CreateParticleSystem(string name, ParticleBirthRule rule, Vector3 localPosition, int maxParticles = 32)
+    {
+        var texture = TextureCache.Get(ptxTextureName);
+        if (texture == null)
+            return null;
+
+        var sim = new GameObject(name).AddComponent<ParticleSim>();
+        sim.Init(maxParticles);
+
+        sim.TextureWidthTiles = ptxWidthTiles;
+        sim.TextureHeightTiles = ptxHeightTiles;
+        sim.SetTextureSheet(texture);
+        sim.BirthRule = rule;
+
+        sim.transform.parent = this.transform;
+        sim.transform.localPosition = localPosition;
+        sim.EmitOverTime = false;
+
+        return sim;
+    }
+
+    private bool GetPivot(string basename, string part, out Vector3 pivot)
+    {
+        string fileName = $"{basename}_{part}.mtx";
+        pivot = Vector3.zero;
+        if (!AssetManager.Exists("geometry", fileName))
+            return false;
+
+        var matrixFile = new MatrixFile();
+        using (var stream = AssetManager.Open("geometry", fileName))
+        {
+            matrixFile.Load(stream);
+            matrixFile = matrixFile.FlipXZ();
+        }
+        pivot = matrixFile.Origin;
+        return true;
+    }
 
     private void DamagedOut()
     {
@@ -84,7 +128,8 @@ public class VehCarDamage : VehSubsystem
 
         smokeRule = new ParticleBirthRule(parser)
         {
-            SpewTimeLimit = 0f
+            SpewTimeLimit = 0f,
+            SpewRate = 60.0f
         };
 
         SmokeOffset = parser.Read("SmokeOffset", Vector3.zero).ConvertCoordinateSpace();
@@ -121,30 +166,19 @@ public class VehCarDamage : VehSubsystem
         var ptxTexture = TextureCache.Get(ptxTextureName);
         if (ptxTexture != null)
         {
-            smokeSystem = new GameObject("EngineSmoke").AddComponent<ParticleSim>();
-            smokeSystem.Init();
+            // create smoke systems
+            smokeSystem = CreateParticleSystem("EngineSmoke", smokeRule, SmokeOffset);
+            smokeSystem2 = CreateParticleSystem("EngineSmoke2", smokeRule, SmokeOffset2);
+            smokeSystemsCreated = (smokeSystem2 != null);
 
-            smokeSystem.TextureWidthTiles = ptxWidthTiles;
-            smokeSystem.TextureHeightTiles = ptxHeightTiles;
-            smokeSystem.SetTextureSheet(ptxTexture);
-            smokeSystem.BirthRule = smokeRule;
+            // create exhaust systems — each pivot is independent
+            if (GetPivot(car.Basename, "exhaust0", out var exhaustPivot0))
+                exhaustSystem = CreateParticleSystem("Exhaust", smokeRule, exhaustPivot0, 16);
 
-            smokeSystem.gameObject.transform.parent = car.Model.transform;
-            smokeSystem.gameObject.transform.localPosition = SmokeOffset;
+            if (GetPivot(car.Basename, "exhaust1", out var exhaustPivot1))
+                exhaustSystem2 = CreateParticleSystem("Exhaust2", smokeRule, exhaustPivot1, 16);
 
-            //setup second engine smoke
-            smokeSystem2 = new GameObject("EngineSmoke2").AddComponent<ParticleSim>();
-            smokeSystem2.Init();
-
-            smokeSystem2.TextureWidthTiles = ptxWidthTiles;
-            smokeSystem2.TextureHeightTiles = ptxHeightTiles;
-            smokeSystem2.SetTextureSheet(ptxTexture);
-            smokeSystem2.BirthRule = smokeRule;
-
-            smokeSystem2.gameObject.transform.parent = car.Model.transform;
-            smokeSystem2.gameObject.transform.localPosition = SmokeOffset2;
-
-            smokeSystemsCreated = true;
+            exhaustSystemsCreated = (exhaustSystem != null || exhaustSystem2 != null);
         }
 
         // init visual
@@ -205,6 +239,26 @@ public class VehCarDamage : VehSubsystem
         }
     }
 
+    private void UpdateExhaust()
+    {
+        if (!exhaustSystemsCreated)
+            return;
+
+        float smokeAmount = Mathf.Clamp01(
+            (Car.VehCarSim.Engine.CurrentRPM - 2000.0f) /
+            (Car.VehCarSim.Engine.MaxRPM - 2000.0f)
+        );
+        exhaustAccumulator += (smokeAmount * 60.0f * Time.deltaTime); // original game was unscaled, assume 60fps was baseline
+
+        int numToEmit = Mathf.FloorToInt(exhaustAccumulator);
+        if(numToEmit > 0)
+        {
+            if (exhaustSystem != null) exhaustSystem.Emit(numToEmit);
+            if (exhaustSystem2 != null) exhaustSystem2.Emit(numToEmit);
+            exhaustAccumulator -= numToEmit;
+        }
+    }
+
     private void UpdateSmoke()
     {
         if (!smokeSystemsCreated)
@@ -222,20 +276,6 @@ public class VehCarDamage : VehSubsystem
 
         if (isEmitting)
         {
-            //get current particle frame for this damage percentage
-            int[] texFrameMap = new int[] { 1, 0, 3, 2 };
-
-            float damagePercentage = (currentDamage - MedDamage) / (MaxDamage - MedDamage);
-            int texFrameIndex = Mathf.Min(Mathf.RoundToInt(damagePercentage * 3f), 3);
-            texFrameIndex = texFrameMap[texFrameIndex];
-
-            smokeRule.TexFrameEnd = texFrameIndex;
-            smokeRule.TexFrameStart = texFrameIndex;
-
-            //set emit rate
-            float rate = Mathf.Lerp(10f, 15f, damagePercentage);
-            smokeRule.SpewRate = rate;
-
             //handle double pviot
             if (!DoublePivot && secondSmokeSystemValid)
             {
@@ -274,8 +314,25 @@ public class VehCarDamage : VehSubsystem
     {
         shards.Materials = Car.Model.BodyMaterials;
 
+        // update particle frame and velocity
+        if(smokeRule != null)
+        {
+            smokeRule.Velocity.Value = Car.Body.velocity;
+
+            //get current particle frame for this damage percentage
+            int[] texFrameMap = new int[] { 1, 0, 3, 2 };
+
+            float damagePercentage = MedMaxDamagePercentage;
+            int texFrameIndex = Mathf.Min(Mathf.RoundToInt(damagePercentage * 3f), 3);
+            texFrameIndex = texFrameMap[texFrameIndex];
+
+            smokeRule.TexFrameEnd = texFrameIndex;
+            smokeRule.TexFrameStart = texFrameIndex;
+        }
+
         UpdateRegeneration();
         UpdateSmoke();
+        UpdateExhaust();
         UpdateWheelWobble();
 
         //damaged out?
