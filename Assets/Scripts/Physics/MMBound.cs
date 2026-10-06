@@ -64,19 +64,16 @@ public class MMBound : BoundBase
 
         //load
         Vector3[] vertices = new Vector3[numVertices];
-        
-        //read vertices
-        for(int i=0; i < numVertices; i++)
-        {
-            if (!boundReader.SkipTo("v"))
-                break;
 
-            var tokens = boundReader.ReadTokens();
-            vertices[i] = new Vector3(-tokens[1].ToFloat(), tokens[2].ToFloat(), tokens[3].ToFloat());
+        //read vertices
+        boundReader.SkipTo("v");
+        for (int i = 0; i < numVertices; i++)
+        {
+            vertices[i] = boundReader.Read<Vector3>("v").ConvertCoordinateSpace();
         }
 
         //read materials
-        for(int i=0; i < numMaterials; i++)
+        for (int i=0; i < numMaterials; i++)
         {
            submeshIndices[i] = new List<int>();
 
@@ -86,29 +83,30 @@ public class MMBound : BoundBase
         }
 
         //read polys
-        for(int i=0; i < numPolys; i++)
+        if(numPolys > 0)
         {
-            if (!boundReader.SkipTo(8, "tri", "quad"))
-                break;
-
-            var tokens = boundReader.ReadTokens();
-            string type = tokens[0].ToString();
-            if(type == "tri")
+            boundReader.SkipTo(8, "tri", "quad");
+            for (int i = 0; i < numPolys; i++)
             {
-                int idx0 = tokens[1].ToInt();
-                int idx1 = tokens[2].ToInt();
-                int idx2 = tokens[3].ToInt();
-                int mtl = tokens[4].ToInt();
-                submeshIndices[mtl].AddRange(new int[] { idx2, idx1, idx0 });
-            }
-            else if(type == "quad")
-            {
-                int idx0 = tokens[1].ToInt();
-                int idx1 = tokens[2].ToInt();
-                int idx2 = tokens[3].ToInt();
-                int idx3 = tokens[4].ToInt();
-                int mtl = tokens[5].ToInt();
-                submeshIndices[mtl].AddRange(new int[] { idx2, idx1, idx0, idx0, idx3, idx2 });
+                var tokens = boundReader.ReadTokens();
+                string type = tokens[0].ToString();
+                if (type == "tri")
+                {
+                    int idx0 = tokens[1].ToInt();
+                    int idx1 = tokens[2].ToInt();
+                    int idx2 = tokens[3].ToInt();
+                    int mtl = tokens[4].ToInt();
+                    submeshIndices[mtl].AddRange(new int[] { idx2, idx1, idx0 });
+                }
+                else if (type == "quad")
+                {
+                    int idx0 = tokens[1].ToInt();
+                    int idx1 = tokens[2].ToInt();
+                    int idx2 = tokens[3].ToInt();
+                    int idx3 = tokens[4].ToInt();
+                    int mtl = tokens[5].ToInt();
+                    submeshIndices[mtl].AddRange(new int[] { idx2, idx1, idx0, idx0, idx3, idx2 });
+                }
             }
         }
 
