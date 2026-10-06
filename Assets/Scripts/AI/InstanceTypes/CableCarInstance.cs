@@ -3,6 +3,8 @@ using UnityEngine;
 
 public class CableCarInstance : UnhitBangerInstance
 {
+    protected override string MainPartName => "body";
+
     private const float ShadowLift = 0.02f;
     private static readonly Quaternion ModelFlip = Quaternion.Euler(0f, 180f, 0f);
 

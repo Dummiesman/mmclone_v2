@@ -16,6 +16,11 @@ public class UnhitBangerInstance : LevelInstance
     public int VariantCount { get; private set; }
     private int variant;
 
+    // virtual properties
+    /// <summary>Group that represents the whole body. Subclasses with differently
+    /// named art override this; it is also the part spawned when NumParts == 0.</summary>
+    protected virtual string MainPartName => MainPart;
+
     // collision
     protected Collider Collider => collider;
     private Collider collider;
@@ -69,7 +74,6 @@ public class UnhitBangerInstance : LevelInstance
     private int dataIndex = -1;
     private bool broken;
 
-    private Vector3 originLocalPosition;
     private Vector3 centerOfGravity;
 
     private List<Renderer> renderers = new List<Renderer>();
@@ -81,8 +85,7 @@ public class UnhitBangerInstance : LevelInstance
     /// <summary>
     /// Where the art sits, before CG was folded into the transform.
     /// </summary>
-    private Vector3 WorldOrigin =>
-        transform.parent != null ? transform.parent.TransformPoint(originLocalPosition) : originLocalPosition;
+    private Vector3 WorldOrigin => transform.position - (transform.rotation * centerOfGravity);
 
 
     public static UnhitBangerInstance RequestBanger(SDLCity level, string propType, Vector3 propPos, Quaternion propRot)
@@ -150,8 +153,6 @@ public class UnhitBangerInstance : LevelInstance
         Flags |= LevelInstanceFlags.Static | LevelInstanceFlags.DisableWhenRoomHidden;
         base.Init(level, basename);
 
-        originLocalPosition = position;
-
         dataIndex = level.BangerDataManager.AddEntry(basename);
         var data = dataIndex >= 0 ? level.BangerDataManager.GetEntry(dataIndex) : null;
 
@@ -207,7 +208,7 @@ public class UnhitBangerInstance : LevelInstance
     /// </summary>
     protected virtual bool ShouldInstantiatePart(string partName)
     {
-        return partName == MainPart;
+        return partName == MainPartName;
     }
 
     protected virtual void BuildTemplate(PackageObjectLoader loader)
@@ -312,13 +313,10 @@ public class UnhitBangerInstance : LevelInstance
     {
         foreach (var part in instance.Parts)
         {
-            switch (part.Name)
-            {
-                case MainPart: main = part.Object; break;
-                case ShadowPart: shadow = part.Object; break;
-            }
+            if (part.Name == MainPartName) main = part.Object;
+            else if (part.Name == ShadowPart) shadow = part.Object;
 
-            if (part.Name != MainPart && part.Object != null)
+            if (part.Name != MainPartName && part.Object != null)
                 part.Object.SetActive(false);
         }
     }
@@ -406,7 +404,7 @@ public class UnhitBangerInstance : LevelInstance
         // no break parts authored - the whole banger becomes one loose object
         if (set.Groups.Length == 0)
         {
-            request.Part = MainPart;
+            request.Part = MainPartName;
             request.DataName = basename;
             request.Position = PartPosition(centerOfGravity);
             request.FallbackMass = totalMass;
