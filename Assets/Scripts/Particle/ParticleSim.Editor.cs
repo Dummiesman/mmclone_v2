@@ -11,16 +11,24 @@ public class ParticleSimEditor : Editor
 
     public override bool RequiresConstantRepaint()
     {
-        //keep the live particle count / birth rule readout ticking in play mode
+        //keep the live particle count / birth rule / draw path readout ticking in play mode
         return Application.isPlaying;
     }
 
     public override void OnInspectorGUI()
     {
-        DrawDefaultInspector();
+        serializedObject.Update();
+
+        //ForceFallbackPath is drawn by hand in DrawDrawPath, next to the live readout
+        DrawPropertiesExcluding(serializedObject, "m_Script", "ForceFallbackPath");
 
         EditorGUILayout.Space();
         DrawControls();
+
+        EditorGUILayout.Space();
+        DrawDrawPath();
+
+        serializedObject.ApplyModifiedProperties();
 
         if (targets.Length == 1)
         {
@@ -66,6 +74,40 @@ public class ParticleSimEditor : Editor
         {
             var sim = (ParticleSim)target;
             EditorGUILayout.LabelField("Live", $"{sim.ParticleCount} particles   bounds {sim.Bounds.size}");
+        }
+    }
+
+    //DRAW PATH
+    //Graphics.DrawMeshInstanced silently draws nothing where instancing is unsupported,
+    //so the toggle below forces the fallback on desktop to make it testable, and the
+    //readout says which path actually ran.
+    private void DrawDrawPath()
+    {
+        EditorGUILayout.LabelField("Draw Path", EditorStyles.boldLabel);
+
+        EditorGUILayout.PropertyField(serializedObject.FindProperty("ForceFallbackPath"),
+            new GUIContent("Force Non-Instanced",
+                           "Draw through the non-instanced fallback even where instancing works. Debug only."));
+
+        if (!SystemInfo.supportsInstancing)
+        {
+            EditorGUILayout.HelpBox("This device reports no instancing support, so the fallback is already in use " +
+                                    "whatever this toggle says.", MessageType.Info);
+        }
+
+        if (!Application.isPlaying)
+        {
+            EditorGUILayout.HelpBox("Enter play mode to see which path is live.", MessageType.None);
+            return;
+        }
+
+        foreach (var t in targets)
+        {
+            var sim = t as ParticleSim;
+            if (sim == null)
+                continue;
+
+            EditorGUILayout.LabelField(targets.Length == 1 ? "Active" : sim.name, sim.DescribeDrawPath());
         }
     }
 
