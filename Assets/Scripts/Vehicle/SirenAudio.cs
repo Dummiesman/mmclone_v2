@@ -45,24 +45,32 @@ public class SirenAudio : MonoBehaviour
     private AudioSource sirenSource;
     private AudioSource explosionSource;
 
-    public void Init(string desiredCsvName, bool is3D = false)
+    public void Init(string vehicleBasename, string sharedCsvName, bool is3D = false)
     {
-        // if the csv for this city doesn't exist, fallback to sf
-        if (!AssetManager.Exists("aud", "cardata", "player", $"{desiredCsvName}.csv"))
+        string csvName = $"{vehicleBasename}_siren";
+
+        // first look for the vehicle specific siren
+        if (!AssetManager.Exists("aud", "cardata", "player", $"{csvName}.csv"))
         {
-            desiredCsvName = "sfpolicesiren";
+            csvName = sharedCsvName; // fallback to shared
+        }
+
+        // if the shared csv for this city doesn't exist, fallback to sf
+        if (!AssetManager.Exists("aud", "cardata", "player", $"{csvName}.csv"))
+        {
+            csvName = "sfpolicesiren";
         }
 
         //if the csv for this city doesn't exist, die
-        if (!AssetManager.Exists("aud", "cardata", "player", $"{desiredCsvName}.csv"))
+        if (!AssetManager.Exists("aud", "cardata", "player", $"{csvName}.csv"))
         {
-            Debug.LogWarning($"Failed to load siren audio csv {desiredCsvName}.");
+            Debug.LogWarning($"Failed to load siren audio csv {csvName}.");
             Destroy(this);
             return;
         }
 
         // this csv exists, lets open it now
-        var reader = AssetManager.OpenCSV("aud", "cardata", "player", $"{desiredCsvName}");
+        var reader = AssetManager.OpenCSV("aud", "cardata", "player", $"{csvName}");
         var sampleDataList = new List<SirenSampleData>();
         string explosionSample = string.Empty;
 
