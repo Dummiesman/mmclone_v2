@@ -17,6 +17,7 @@ public class VehicleAudioContainer : VehSubsystem
     private SurfaceAudio surfaceAudio;
     private ImpactAudio impactAudio;
     private SirenAudio sirenAudio;
+    private SemiAudio semiAudio;
 
     public override void Init(VehCar car)
     {
@@ -45,12 +46,19 @@ public class VehicleAudioContainer : VehSubsystem
         impactAudio = impactAudioGroup.AddComponent<ImpactAudio>();
         impactAudio.Init((car.Type != vehCarType.Player));
 
-        if(car.Siren != null && car.Siren.LightCount > 0)
+        if((car.Siren != null && car.Siren.LightCount > 0) || VehicleTypeRegistry.IsPolice(car.Basename))
         {
             var sirenAudioGroup = new GameObject("SirenAudio");
             sirenAudioGroup.transform.parent = audioRoot.transform;
             sirenAudio = sirenAudioGroup.AddComponent<SirenAudio>();
-            SirenAudio.Init(SirenCSVName, (car.Type != vehCarType.Player));
+            sirenAudio.Init(car.Basename, SirenCSVName, (car.Type != vehCarType.Player));
+        }
+        if(VehicleTypeRegistry.IsSemi(car.Basename))
+        {
+            var semiAudioGroup = new GameObject("SemiAudio");
+            semiAudioGroup.transform.parent = audioRoot.transform;
+            semiAudio = semiAudioGroup.AddComponent<SemiAudio>();
+            semiAudio.Init(car, (car.Type != vehCarType.Player));
         }
     }
 

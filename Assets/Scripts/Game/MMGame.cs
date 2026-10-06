@@ -190,6 +190,9 @@ public class MMGame : MonoBehaviour
         // hook tex loading and clear cache
         TextureLoader.PostprocessHook = TextureLoadHook;
         TextureCache.Clear();
+
+        // load vehicle types
+        VehicleTypeRegistry.Load();
     }
 
     private void InitSystems()
