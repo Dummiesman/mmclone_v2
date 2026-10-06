@@ -35,6 +35,9 @@ namespace MM2.AI
         public AIRouter Router => router;
         private AIRouter router;
 
+        public RandomInstance Random => random;
+        private RandomInstance random;
+
         [Header("Gizmos")]
         [SerializeField] private bool drawEntityGizmos = false;
         [SerializeField] private bool drawActiveCullRoadGizmos = false;
@@ -535,10 +538,10 @@ namespace MM2.AI
                 for (int i = 0; i < pedSides.Count && ped != null; i++)
                 {
                     var side = pedSides[i];
-                    var lane = laneScratch[side.x + UnityEngine.Random.Range(0, side.y)];
+                    var lane = laneScratch[side.x + random.Range(0, side.y)];
 
                     // Stand-in for aiPedestrian::Reset, which picks the spot itself.
-                    PlaceOnLane(ped, lane, UnityEngine.Random.Range(0f, lane.Instance.Road.Length));
+                    PlaceOnLane(ped, lane, random.Range(0f, lane.Instance.Road.Length));
                     ped = NextFree(pedestrianPool, ref poolCursor, pedLimit);
                 }
             }
@@ -786,7 +789,7 @@ namespace MM2.AI
             var offRampSide = (offRampRoad.LeftEndData.IntersectionID == intersectionEnd.Id) ? offRampRoad.LeftData : offRampRoad.RightData;
             bool canTakeOffRamp = offRampSide.GetRailCount(railType) > 0 && (offRampSide.AiTypeFlags & typeFlags) > 0;
 
-            bool shouldTakeOffRamp = (sourceRoad.RailIndex == sourceRoad.RoadData.numLanes - 1) && UnityEngine.Random.value > 0.5f;
+            bool shouldTakeOffRamp = (sourceRoad.RailIndex == sourceRoad.RoadData.numLanes - 1) && random.value > 0.5f;
 
             if (shouldTakeOffRamp && canTakeOffRamp)
             {
@@ -879,7 +882,7 @@ namespace MM2.AI
                 // didn't find a freeway, choose randomly
                 if (nextRoadIdx < 0)
                 {
-                    int startRoad = UnityEngine.Random.Range(0, intersectionEnd.Roads.Count);
+                    int startRoad = random.Range(0, intersectionEnd.Roads.Count);
                     for (int i = 0; i < intersectionEnd.Roads.Count; i++)
                     {
                         int startOffset = (i + startRoad) % intersectionEnd.Roads.Count;
@@ -1057,7 +1060,7 @@ namespace MM2.AI
                 else
                 {
                     // in some cases, go straight instead of turn, even if we can turn
-                    float noTurnChance = UnityEngine.Random.value;
+                    float noTurnChance = random.value;
                     if (canGoStraight && (canTurnLeft || canTurnRight))
                     {
                         if (noTurnChance > 0.7f)
@@ -1342,7 +1345,7 @@ namespace MM2.AI
             var angles = refIntersection.RoadAngles[roadIdx];
             int validRoadCount = angles.Count(x => x > angMin && x < angMax);
 
-            int roadChoice = (validRoadCount > 1) ? UnityEngine.Random.Range(0, validRoadCount) : 0;
+            int roadChoice = (validRoadCount > 1) ? random.Range(0, validRoadCount) : 0;
             int roadChoiceCur = 0;
             for (int i = 0; i < angles.Count; i++)
             {
@@ -1473,6 +1476,8 @@ namespace MM2.AI
         //
         public void Reset()
         {
+            random.InitState(0); // reset random
+
             // basically setcullindex with a set seed
             foreach(AIEntity entity in trafficCarPool.Cast<AIEntity>().Concat(pedestrianPool))
             {
@@ -1902,6 +1907,8 @@ namespace MM2.AI
 
         public void Init(SDLCity level, AIMap aimap, MMGameMode gameMode, MMWeather weather, string name)
         {
+            this.random = new RandomInstance(0);
+
             this.aiMap = aimap;
             this.level = level;
             this.GameMode = gameMode;
@@ -2097,7 +2104,6 @@ namespace MM2.AI
 
             return last;
         }
-
 
         private void Update()
         {

@@ -412,7 +412,7 @@ namespace MM2.AI
 
         public void RandomizePositionAlongPath()
         {
-            NormalizedPathProgress = Random.value * 0.5f;
+            NormalizedPathProgress = network.Random.value * 0.5f;
             PositionAlongPath(NormalizedPathProgress);
         }
 

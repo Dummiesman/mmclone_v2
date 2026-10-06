@@ -717,8 +717,8 @@ namespace MM2.AI
             if (info.RoadInstance.GetLaneCount(info.SideOfRoad, RailType) < 2)
                 return;
 
-            wantsLaneChange = Random.value < LaneChangeChance;
-            laneChangeTriggerProgress = Random.Range(LaneChangeWindowStart, LaneChangeWindowEnd);
+            wantsLaneChange = network.Random.value < LaneChangeChance;
+            laneChangeTriggerProgress = network.Random.Range(LaneChangeWindowStart, LaneChangeWindowEnd);
         }
 
         /// Is there room for us in 'lane' with our front/rear at pathDistance + bumper offsets?

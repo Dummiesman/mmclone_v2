@@ -128,7 +128,7 @@ namespace MM2.AI
                 }
                 else
                 {
-                    newRoadInfo.SideOfRoad = Random.value > 0.5f ? RoadSide.Right : RoadSide.Left;
+                    newRoadInfo.SideOfRoad = network.Random.value > 0.5f ? RoadSide.Right : RoadSide.Left;
                 }
             }
             if (newRoadInfo.SideOfRoad == RoadSide.Invalid)
@@ -141,7 +141,7 @@ namespace MM2.AI
             {
                 int railCountL = newRoadInfo.RoadInstance.Road.LeftData.GetRailCount(RailType);
                 int railCountR = newRoadInfo.RoadInstance.Road.RightData.GetRailCount(RailType);
-                newRoadInfo.RailIndex = newRoadInfo.SideOfRoad == 0 ? Random.Range(0, railCountL) : Random.Range(0, railCountR);
+                newRoadInfo.RailIndex = newRoadInfo.SideOfRoad == 0 ? network.Random.Range(0, railCountL) : network.Random.Range(0, railCountR);
             }
 
             // set my info
