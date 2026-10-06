@@ -263,116 +263,40 @@ public class TokenFileParser
         return ReadImmediate<Color>();
     }
 
-
     public T ReadImmediate<T>()
     {
-        string line = ReadLine(false);
+        var tokens = ReadTokens(false);
+        var slice = tokens[1];
 
-        int firstSpaceIndex = line.IndexOf(' ');
-        int nextSpaceIndex = line.IndexOf(' ', firstSpaceIndex + 1);
-
-        if (firstSpaceIndex >= 0 && nextSpaceIndex < 0)
-            nextSpaceIndex = line.Length;
-
-        Type tType = typeof(T);
-        switch (Type.GetTypeCode(tType))
+        switch (Type.GetTypeCode(typeof(T)))
         {
-            case TypeCode.Boolean:
-                {
-                    string parse = line.Substring(firstSpaceIndex + 1, nextSpaceIndex - firstSpaceIndex - 1);
-                    if (parse == "1") return (T)(object)true;
-                    if (parse == "0") return (T)(object)false;
-                    return (T)(object)bool.Parse(parse);
-                }
-            case TypeCode.Int32:
-                {
-                    var slice = new StringSlice(line, firstSpaceIndex + 1, nextSpaceIndex - firstSpaceIndex - 1);
-                    int result = slice.ToInt();
-                    return (T)(object)result;
-                }
-            case TypeCode.Int16:
-                {
-                    var slice = new StringSlice(line, firstSpaceIndex + 1, nextSpaceIndex - firstSpaceIndex - 1);
-                    short result = (short)slice.ToInt();
-                    return (T)(object)result;
-                }
-            case TypeCode.UInt32:
-                {
-                    var slice = new StringSlice(line, firstSpaceIndex + 1, nextSpaceIndex - firstSpaceIndex - 1);
-                    uint result = (uint)slice.ToInt();
-                    return (T)(object)result;
-                }
-            case TypeCode.UInt16:
-                {
-                    var slice = new StringSlice(line, firstSpaceIndex + 1, nextSpaceIndex - firstSpaceIndex - 1);
-                    ushort result = (ushort)slice.ToInt();
-                    return (T)(object)result;
-                }
-            case TypeCode.Single:
-                {
-                    var slice = new StringSlice(line, firstSpaceIndex + 1, nextSpaceIndex - firstSpaceIndex - 1);
-                    float result = slice.ToFloat();
-                    return (T)(object)result;
-                }
-            case TypeCode.Double:
-                {
-                    var slice = new StringSlice(line, firstSpaceIndex + 1, nextSpaceIndex - firstSpaceIndex - 1);
-                    double result = slice.ToFloat();
-                    return (T)(object)result;
-                }
-            case TypeCode.String:
-                {
-                    return (T)(object)line.Substring(firstSpaceIndex + 1, nextSpaceIndex - firstSpaceIndex - 1);
-                }
+            case TypeCode.Boolean: return As(ParseBool(slice));
+            case TypeCode.Int16: return As((short)slice.ToInt());
+            case TypeCode.UInt16: return As((ushort)slice.ToInt());
+            case TypeCode.Int32: return As(slice.ToInt());
+            case TypeCode.UInt32: return As((uint)slice.ToInt());
+            case TypeCode.Single: return As(slice.ToFloat());
+            case TypeCode.Double: return As((double)slice.ToFloat());
+            case TypeCode.String: return As(slice.ToString());
         }
 
-        // non-primitives
-        if (tType == typeof(Color))
-        {
-            string[] splits = ReadTokensArray(false);
-            return (T)(object)new Color(FastFloatParser.Parse(splits[1]), FastFloatParser.Parse(splits[2]), FastFloatParser.Parse(splits[3]));
-        }
-        else if(tType == typeof(Vector2))
-        {
-            string[] splits = ReadTokensArray(false);
+        Type t = typeof(T);
+        if (t == typeof(Color)) return As(new Color(slice.ToFloat(), tokens[2].ToFloat(), tokens[3].ToFloat()));
+        if (t == typeof(Vector2)) return As(new Vector2(slice.ToFloat(), tokens[2].ToFloat()));
+        if (t == typeof(Vector3)) return As(new Vector3(slice.ToFloat(), tokens[2].ToFloat(), tokens[3].ToFloat()));
+        if (t == typeof(Vector2Int)) return As(new Vector2Int(slice.ToInt(), tokens[2].ToInt()));
+        if (t == typeof(Vector3Int)) return As(new Vector3Int(slice.ToInt(), tokens[2].ToInt(), tokens[3].ToInt()));
 
-            float x = 0f;
-            float y = 0f;
+        return (T)TypeDescriptor.GetConverter(t).ConvertFrom(slice.ToString());
 
-            FastFloatParser.TryParse(splits[1], out x);
-            FastFloatParser.TryParse(splits[2], out y);
+        static T As<U>(U value) => (T)(object)value;
+    }
 
-            return (T)(object)new Vector2(x, y);
-        }
-        else if (tType == typeof(Vector3))
-        {
-            string[] splits = ReadTokensArray(false);
-
-            float x = 0f;
-            float y = 0f;
-            float z = 0f;
-            FastFloatParser.TryParse(splits[1], out x);
-            FastFloatParser.TryParse(splits[2], out y);
-            FastFloatParser.TryParse(splits[3], out z);
-
-            return (T)(object)new Vector3(x, y, z);
-        }
-        else if(tType == typeof(Vector2Int))
-        {
-            var slices = ReadTokens(false);
-            return (T)(object)new Vector2Int(slices[1].ToInt(), slices[2].ToInt());
-        }
-        else if (tType == typeof(Vector3Int))
-        {
-            var slices = ReadTokens(false);
-            return (T)(object)new Vector3Int(slices[1].ToInt(), slices[2].ToInt(), slices[3].ToInt());
-        }
-        else
-        {
-            string[] splits = ReadTokensArray(false);
-            var typeConverter = TypeDescriptor.GetConverter(tType);
-            return (T)typeConverter.ConvertFrom(splits[1]);
-        }
+    static bool ParseBool(StringSlice s)
+    {
+        if (s.Equals("1")) return true;
+        if (s.Equals("0")) return false;
+        return bool.Parse(s.ToString());
     }
 
     public T Read<T>(string token, T defaultValue = default)
