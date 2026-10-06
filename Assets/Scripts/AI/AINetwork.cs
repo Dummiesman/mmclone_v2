@@ -1709,7 +1709,7 @@ namespace MM2.AI
             {
                 // create control devices array
                 int roadCount = ints.Intersection.Roads.Count;
-                ints.ControlDevices = new TrafficControlDevice[roadCount];
+                ints.ControlDevices.Clear();
 
                 // assign
                 for (int i = 0; i < roadCount; i++)
@@ -1721,13 +1721,13 @@ namespace MM2.AI
                     switch (rdEnd.VehRule)
                     {
                         case VehicleRule.AlwaysStop:
-                            ints.ControlDevices[i] = new AlwaysStopDevice(ints);
+                            ints.ControlDevices.Add(new AlwaysStopDevice(ints));
                             break;
                         case VehicleRule.NeverStop:
-                            ints.ControlDevices[i] = new NeverStopDevice(ints);
+                            ints.ControlDevices.Add(new NeverStopDevice(ints));
                             break;
                         case VehicleRule.StopSign:
-                            ints.ControlDevices[i] = new StopSignDevice(ints);
+                            ints.ControlDevices.Add(new StopSignDevice(ints));
                             break;
                         case VehicleRule.TrafficLight:
                             {
@@ -1755,7 +1755,7 @@ namespace MM2.AI
                                 // set control device
                                 var device = new TrafficLightDevice(ints);
                                 device.Instance = instance;
-                                ints.ControlDevices[i] = device;
+                                ints.ControlDevices.Add(device);
                                 ints.IntersectionLightSet.Lights.Add(device);
                             }
                             break;

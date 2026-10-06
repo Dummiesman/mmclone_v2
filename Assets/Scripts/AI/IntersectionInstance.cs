@@ -12,7 +12,7 @@ namespace MM2.AI
 
         public TrafficLightSet IntersectionLightSet;
 
-        public TrafficControlDevice[] ControlDevices;
+        public readonly List<TrafficControlDevice> ControlDevices = new List<TrafficControlDevice>();
         public int NumVehiclesInIntersection => entitiesInIntersection.Count;
 
         private readonly List<AIEntity> entitiesInIntersection = new List<AIEntity>();

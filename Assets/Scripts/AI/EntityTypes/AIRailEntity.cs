@@ -203,7 +203,7 @@ namespace MM2.AI
                 ? intersectionInfo.IntersectionRoadIndex
                 : destIntersection.Intersection.Roads.IndexOf(RoadInfo.RoadInstance.Road);
 
-            if (indexInList < 0 || indexInList >= controlDevices.Length)
+            if (indexInList < 0 || indexInList >= controlDevices.Count)
                 return false;
 
             // Is there room on the next road, or is the last entity still cramming the entrance?
