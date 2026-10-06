@@ -51,7 +51,7 @@ namespace MM2.AI
         public PoliceForce PoliceForce => policeForce;
         private PoliceForce policeForce;
 
-        // ai dvehicle data holder
+        // ai vehicle data holder
         public AIVehicleDataManager VehicleDataManager => vehicleDataManager;
         private AIVehicleDataManager vehicleDataManager = new AIVehicleDataManager();
 
