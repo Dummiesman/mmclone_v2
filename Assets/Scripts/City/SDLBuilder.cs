@@ -276,9 +276,9 @@ public class SDLBuilder : IDisposable
 
     private Material GetOrCreateMaterial(int index)
     {
-        if(index < 0)
+        if (index < 0)
         {
-            if(blankMaterial == null)
+            if (blankMaterial == null)
             {
                 if (shader == null) shader = Shader.Find(shaderName);
                 blankMaterial = new Material(shader)
@@ -1651,6 +1651,12 @@ public class SDLBuilder : IDisposable
         bool haveCeiling = flatCeiling || curvedCeiling;
         bool doubleSidedWalls = (flags & TunnelFlags.Culled) != 0 && !isWall;
 
+        // A road can carry the 3D wall flag while only having a wall on one side.
+        // The outer face, its top strip and its caps only exist where there is a
+        // wall to thicken; the underside always spans the full width.
+        bool leftOuter = isWall && leftSide;
+        bool rightOuter = isWall && rightSide;
+
         bool closedStartLeft = (flags & TunnelFlags.ClosedStartLeft) != 0;
         bool closedEndLeft = (flags & TunnelFlags.ClosedEndLeft) != 0;
         bool closedStartRight = (flags & TunnelFlags.ClosedStartRight) != 0;
@@ -1682,10 +1688,18 @@ public class SDLBuilder : IDisposable
         }
         if (isWall)
         {
-            leftOuterWallBase = vertexCountPerRow;
-            rightOuterWallBase = vertexCountPerRow + 4;
-            undersideBase = vertexCountPerRow + 8;
-            vertexCountPerRow += 10;
+            if (leftOuter)
+            {
+                leftOuterWallBase = vertexCountPerRow;
+                vertexCountPerRow += 4;
+            }
+            if (rightOuter)
+            {
+                rightOuterWallBase = vertexCountPerRow;
+                vertexCountPerRow += 4;
+            }
+            undersideBase = vertexCountPerRow;
+            vertexCountPerRow += 2;
         }
         if (haveCeiling)
         {
@@ -1695,10 +1709,12 @@ public class SDLBuilder : IDisposable
 
         int rowVertexCount = vertexCountPerRow * rowCount;
 
+        // caps only ever render through an outer-wall submesh, so a side without
+        // one gets no cap geometry at all
         int leftCapsBase = rowVertexCount;
-        int leftCapVertexCount = ((closedStartLeft ? 1 : 0) + (closedEndLeft ? 1 : 0)) * 4;
+        int leftCapVertexCount = leftOuter ? ((closedStartLeft ? 1 : 0) + (closedEndLeft ? 1 : 0)) * 4 : 0;
         int rightCapsBase = leftCapsBase + leftCapVertexCount;
-        int rightCapVertexCount = ((closedStartRight ? 1 : 0) + (closedEndRight ? 1 : 0)) * 4;
+        int rightCapVertexCount = rightOuter ? ((closedStartRight ? 1 : 0) + (closedEndRight ? 1 : 0)) * 4 : 0;
 
         int vertexCount = rowVertexCount + leftCapVertexCount + rightCapVertexCount;
 
@@ -1707,9 +1723,8 @@ public class SDLBuilder : IDisposable
         int leftWallIndexCount = leftSide ? spanCount * (lrWallVertexCount - 1) * 6 * sidedMultiplier : 0;
         int rightWallIndexCount = rightSide ? spanCount * (lrWallVertexCount - 1) * 6 * sidedMultiplier : 0;
 
-        // caps only ever render through the outer-wall submeshes, same as the Lua
-        int leftOuterIndexCount = isWall ? (spanCount * 12) + (leftCapVertexCount / 4 * 6) : 0;
-        int rightOuterIndexCount = isWall ? (spanCount * 12) + (rightCapVertexCount / 4 * 6) : 0;
+        int leftOuterIndexCount = leftOuter ? (spanCount * 12) + (leftCapVertexCount / 4 * 6) : 0;
+        int rightOuterIndexCount = rightOuter ? (spanCount * 12) + (rightCapVertexCount / 4 * 6) : 0;
         int undersideIndexCount = isWall ? spanCount * 6 : 0;
         int ceilingIndexCount = haveCeiling ? spanCount * (ceilingVertexCount - 1) * 6 : 0;
 
@@ -1739,8 +1754,8 @@ public class SDLBuilder : IDisposable
 
         if (isWall)
         {
-            wallUvsLeft = VerticalStripMap(roadVerts, rowBreadth, 0, wallThickness);
-            wallUvsRight = VerticalStripMap(roadVerts, rowBreadth, rowBreadth - 1, wallThickness);
+            if (leftOuter) wallUvsLeft = VerticalStripMap(roadVerts, rowBreadth, 0, wallThickness);
+            if (rightOuter) wallUvsRight = VerticalStripMap(roadVerts, rowBreadth, rowBreadth - 1, wallThickness);
             undersideUvs = StripMap(roadVerts, rowBreadth, 0, rowBreadth - 1);
         }
         if (haveCeiling)
@@ -1852,10 +1867,6 @@ public class SDLBuilder : IDisposable
 
             if (isWall)
             {
-                var uvTopLeftStripLeft = wallUvsLeft[uvBase];
-                var uvTopLeftStripRight = wallUvsLeft[uvBase + 1];
-                var uvTopRightStripLeft = wallUvsRight[uvBase];
-                var uvTopRightStripRight = wallUvsRight[uvBase + 1];
                 var uvUndersideLeft = undersideUvs[uvBase];
                 var uvUndersideRight = undersideUvs[uvBase + 1];
 
@@ -1871,29 +1882,43 @@ public class SDLBuilder : IDisposable
                 else if (i == rowCount - 1 && (flags & TunnelFlags.OffsetEndRight) != 0)
                     rightOuterOffset = MitreOffset(rightSideDir, wallThickness, false, false);
 
-                var leftTopOuterWallVertex = leftTopVertex + (leftSideDir * wallThickness) + leftOuterOffset;
-                var leftBottomOuterWallVertex = leftVertex + (leftSideDir * wallThickness) + leftOuterOffset - wallThirdHeightVec;
+                // a side with no wall has nothing to push the underside out to, so
+                // it stops at the road edge
+                var leftBottomOuterWallVertex = leftOuter
+                    ? leftVertex + (leftSideDir * wallThickness) + leftOuterOffset - wallThirdHeightVec
+                    : leftVertex - wallThirdHeightVec;
 
-                var rightTopOuterWallVertex = rightTopVertex + (rightSideDir * wallThickness) + rightOuterOffset;
-                var rightBottomOuterWallVertex = rightVertex + (rightSideDir * wallThickness) + rightOuterOffset - wallThirdHeightVec;
+                var rightBottomOuterWallVertex = rightOuter
+                    ? rightVertex + (rightSideDir * wallThickness) + rightOuterOffset - wallThirdHeightVec
+                    : rightVertex - wallThirdHeightVec;
 
-                // left outer face, then the strip back across the top
-                sdlVertices[w] = new SDLVertex() { pos = leftBottomOuterWallVertex, uv = uvBottomLeft };
-                sdlVertices[w + 1] = new SDLVertex() { pos = leftTopOuterWallVertex, uv = uvTopLeft };
-                sdlVertices[w + 2] = new SDLVertex() { pos = leftTopOuterWallVertex, uv = uvTopLeftStripLeft };
-                sdlVertices[w + 3] = new SDLVertex() { pos = leftTopVertex, uv = uvTopLeftStripRight };
+                if (leftOuter)
+                {
+                    var leftTopOuterWallVertex = leftTopVertex + (leftSideDir * wallThickness) + leftOuterOffset;
 
-                // right outer face, then its strip
-                sdlVertices[w + 4] = new SDLVertex() { pos = rightBottomOuterWallVertex, uv = uvBottomRight };
-                sdlVertices[w + 5] = new SDLVertex() { pos = rightTopOuterWallVertex, uv = uvTopRight };
-                sdlVertices[w + 6] = new SDLVertex() { pos = rightTopOuterWallVertex, uv = uvTopRightStripLeft };
-                sdlVertices[w + 7] = new SDLVertex() { pos = rightTopVertex, uv = uvTopRightStripRight };
+                    // outer face, then the strip back across the top to the inner wall
+                    sdlVertices[w] = new SDLVertex() { pos = leftBottomOuterWallVertex, uv = uvBottomLeft };
+                    sdlVertices[w + 1] = new SDLVertex() { pos = leftTopOuterWallVertex, uv = uvTopLeft };
+                    sdlVertices[w + 2] = new SDLVertex() { pos = leftTopOuterWallVertex, uv = wallUvsLeft[uvBase] };
+                    sdlVertices[w + 3] = new SDLVertex() { pos = leftTopVertex, uv = wallUvsLeft[uvBase + 1] };
+                    w += 4;
+                }
+
+                if (rightOuter)
+                {
+                    var rightTopOuterWallVertex = rightTopVertex + (rightSideDir * wallThickness) + rightOuterOffset;
+
+                    sdlVertices[w] = new SDLVertex() { pos = rightBottomOuterWallVertex, uv = uvBottomRight };
+                    sdlVertices[w + 1] = new SDLVertex() { pos = rightTopOuterWallVertex, uv = uvTopRight };
+                    sdlVertices[w + 2] = new SDLVertex() { pos = rightTopOuterWallVertex, uv = wallUvsRight[uvBase] };
+                    sdlVertices[w + 3] = new SDLVertex() { pos = rightTopVertex, uv = wallUvsRight[uvBase + 1] };
+                    w += 4;
+                }
 
                 // underside
-                sdlVertices[w + 8] = new SDLVertex() { pos = rightBottomOuterWallVertex, uv = uvUndersideRight };
-                sdlVertices[w + 9] = new SDLVertex() { pos = leftBottomOuterWallVertex, uv = uvUndersideLeft };
-
-                w += 10;
+                sdlVertices[w] = new SDLVertex() { pos = rightBottomOuterWallVertex, uv = uvUndersideRight };
+                sdlVertices[w + 1] = new SDLVertex() { pos = leftBottomOuterWallVertex, uv = uvUndersideLeft };
+                w += 2;
             }
 
             if (flatCeiling)
@@ -1934,14 +1959,14 @@ public class SDLBuilder : IDisposable
         // ---- cap vertices ------------------------------------------------------
         int capCursor = leftCapsBase;
 
-        if (closedStartLeft)
+        if (leftOuter && closedStartLeft)
         {
             WriteTunnelCap(sdlVertices, capCursor, roadVerts[0], roadVerts[1],
                            wallHeightVec, wallThirdHeightVec, wallThickness,
                            true, true, (flags & TunnelFlags.OffsetStartLeft) != 0);
             capCursor += 4;
         }
-        if (closedEndLeft)
+        if (leftOuter && closedEndLeft)
         {
             int b = (rowCount - 1) * rowBreadth;
             WriteTunnelCap(sdlVertices, capCursor, roadVerts[b], roadVerts[b + 1],
@@ -1952,7 +1977,7 @@ public class SDLBuilder : IDisposable
 
         capCursor = rightCapsBase;
 
-        if (closedStartRight)
+        if (rightOuter && closedStartRight)
         {
             int b = rowBreadth - 2;
             WriteTunnelCap(sdlVertices, capCursor, roadVerts[b + 1], roadVerts[b],
@@ -1960,7 +1985,7 @@ public class SDLBuilder : IDisposable
                            true, false, (flags & TunnelFlags.OffsetStartRight) != 0);
             capCursor += 4;
         }
-        if (closedEndRight)
+        if (rightOuter && closedEndRight)
         {
             int b = ((rowCount - 1) * rowBreadth) + (rowBreadth - 2);
             WriteTunnelCap(sdlVertices, capCursor, roadVerts[b + 1], roadVerts[b],
@@ -2028,7 +2053,7 @@ public class SDLBuilder : IDisposable
                 }
             }
 
-            if (isWall)
+            if (leftOuter)
             {
                 int aLO = rowBase + leftOuterWallBase;
                 int cLO = rowBaseNext + leftOuterWallBase;
@@ -2038,7 +2063,10 @@ public class SDLBuilder : IDisposable
                 WriteTri(sdlIndices, leftOuterCursor + 6, aLO + 2, cLO + 2, aLO + 3);
                 WriteTri(sdlIndices, leftOuterCursor + 9, aLO + 3, cLO + 2, cLO + 3);
                 leftOuterCursor += 12;
+            }
 
+            if (rightOuter)
+            {
                 int aRO = rowBase + rightOuterWallBase;
                 int cRO = rowBaseNext + rightOuterWallBase;
 
@@ -2047,7 +2075,10 @@ public class SDLBuilder : IDisposable
                 WriteTri(sdlIndices, rightOuterCursor + 6, aRO + 3, cRO + 2, aRO + 2);
                 WriteTri(sdlIndices, rightOuterCursor + 9, cRO + 3, cRO + 2, aRO + 3);
                 rightOuterCursor += 12;
+            }
 
+            if (isWall)
+            {
                 int aU = rowBase + undersideBase;
                 int cU = rowBaseNext + undersideBase;
 
@@ -2073,7 +2104,7 @@ public class SDLBuilder : IDisposable
         }
 
         // ---- cap indices -------------------------------------------------------
-        if (isWall)
+        if (leftOuter)
         {
             int capVertex = leftCapsBase;
             if (closedStartLeft)
@@ -2088,8 +2119,11 @@ public class SDLBuilder : IDisposable
                 leftOuterCursor += 6;
                 capVertex += 4;
             }
+        }
 
-            capVertex = rightCapsBase;
+        if (rightOuter)
+        {
+            int capVertex = rightCapsBase;
             if (closedStartRight)
             {
                 WriteCapQuad(sdlIndices, rightOuterCursor, capVertex);
@@ -2114,8 +2148,8 @@ public class SDLBuilder : IDisposable
         if (rightSide) SetTriSubMesh(data, subMesh++, rightWallStart, rightWallIndexCount, vertexCount);
         if (isWall)
         {
-            SetTriSubMesh(data, subMesh++, leftOuterStart, leftOuterIndexCount, vertexCount);
-            SetTriSubMesh(data, subMesh++, rightOuterStart, rightOuterIndexCount, vertexCount);
+            if (leftOuter) SetTriSubMesh(data, subMesh++, leftOuterStart, leftOuterIndexCount, vertexCount);
+            if (rightOuter) SetTriSubMesh(data, subMesh++, rightOuterStart, rightOuterIndexCount, vertexCount);
             SetTriSubMesh(data, subMesh++, undersideStart, undersideIndexCount, vertexCount);
         }
         if (haveCeiling) SetTriSubMesh(data, subMesh++, ceilingStart, ceilingIndexCount, vertexCount);
@@ -2178,10 +2212,19 @@ public class SDLBuilder : IDisposable
 
     private static int GetRoadTunnelSubMeshCount(TunnelFlags flags)
     {
+        bool leftSide = (flags & TunnelFlags.LeftSide) != 0;
+        bool rightSide = (flags & TunnelFlags.RightSide) != 0;
+
         int count = 0;
-        if ((flags & TunnelFlags.LeftSide) != 0) count++;
-        if ((flags & TunnelFlags.RightSide) != 0) count++;
-        if ((flags & TunnelFlags.IsWall) != 0) count += 3;
+        if (leftSide) count++;
+        if (rightSide) count++;
+        if ((flags & TunnelFlags.IsWall) != 0)
+        {
+            // outer faces only exist where there's a wall; the underside always does
+            if (leftSide) count++;
+            if (rightSide) count++;
+            count++;
+        }
         if ((flags & (TunnelFlags.FlatCeiling | TunnelFlags.CurvedCeiling)) != 0) count++;
         return count;
     }
@@ -2214,15 +2257,20 @@ public class SDLBuilder : IDisposable
         }
         else
         {
-            if ((flags & TunnelFlags.LeftSide) != 0)
+            bool leftSide = (flags & TunnelFlags.LeftSide) != 0;
+            bool rightSide = (flags & TunnelFlags.RightSide) != 0;
+
+            if (leftSide)
                 materials[subMesh++] = GetOrCreateMaterial(Texture(0));
-            if ((flags & TunnelFlags.RightSide) != 0)
+            if (rightSide)
                 materials[subMesh++] = GetOrCreateMaterial(Texture(1));
             if (isWall)
             {
-                materials[subMesh++] = GetOrCreateMaterial(Texture(4));  // left outer
-                materials[subMesh++] = GetOrCreateMaterial(Texture(3));  // right outer
-                materials[subMesh++] = GetOrCreateMaterial(Texture(5));  // underside
+                if (leftSide)
+                    materials[subMesh++] = GetOrCreateMaterial(Texture(4));   // left outer
+                if (rightSide)
+                    materials[subMesh++] = GetOrCreateMaterial(Texture(3));   // right outer
+                materials[subMesh++] = GetOrCreateMaterial(Texture(5));       // underside
             }
             if (haveCeiling)
                 materials[subMesh++] = GetOrCreateMaterial(Texture(2));
