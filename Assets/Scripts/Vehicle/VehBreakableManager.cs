@@ -130,7 +130,7 @@ public class VehBreakableManager : MonoBehaviour
         banger.Launch(velocity, UnityEngine.Random.insideUnitSphere * EjectSpin);
 
         if (level != null)
-            level.MoveToRoom(banger.gameObject, room);
+            level.MoveToRoom(banger, room);
     }
 
     public void SetVariant(int index)

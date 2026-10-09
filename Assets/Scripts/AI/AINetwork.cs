@@ -1626,7 +1626,7 @@ namespace MM2.AI
 
         private void InitPedPool(int size, string[] modelNames)
         {
-            var city = SDLCity.Instance;
+            var city = level;
             if (city == null)
                 return;
 
@@ -1660,8 +1660,7 @@ namespace MM2.AI
 
         private void InitTrafficPool(int size, Dictionary<string, float> trafficTypesAndDensity)
         {
-            // This is crap, move the AIMap to this class instead
-            var city = SDLCity.Instance;
+            var city = level;
             if (city == null)
                 return;
 
@@ -1749,7 +1748,7 @@ namespace MM2.AI
                                     instance = trafLight.AddComponent<TrafficLightInstance>();
                                     instance.Init(level, trafLightModel);
                                     instance.Init(level, trafLightModel, trafLightPosition, trafLightRotation, Vector3.one);
-                                    level.MoveToRoom(trafLight, level.FindRoomIdWithWarps(trafLightPosition));
+                                    level.MoveToRoom(instance, level.FindRoomIdWithWarps(trafLightPosition));
                                 }
 
                                 // set control device

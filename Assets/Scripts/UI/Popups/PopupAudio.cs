@@ -45,7 +45,7 @@ public class PopupAudio : PopupMenuBase
 
     private void OnBalanceChanged(float value)
     {
-
+        GameState.AudioBalance = value;
     }
 
     private void CancelAction()
