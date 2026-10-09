@@ -57,7 +57,7 @@ public class SingleRoam : SingleGame
 
     public override void PlayerHitWaterHandler()
     {
-        Player.Car.Reset();
+        Player.Reset();
     }
 
     public override void Reset()

@@ -303,7 +303,7 @@ public class SingleCircuit : SingleGame
 
     public override void PlayerHitWaterHandler()
     {
-        Player.Car.Reset();
+        Player.Reset();
     }
 
     public override void Reset()
