@@ -164,7 +164,6 @@ public class MMGame : MonoBehaviour
             new LoadStep("InitWaterOfDeath", () => city.InitWaterOfDeath()),
             new LoadStep("InitAmbientAudio", () => city.InitAmbientAudio()),
             new LoadStep("InitAI",           () => city.InitAI()),
-            new LoadStep("InitCulling",      () => city.InitCulling()),
             
             new LoadStep("PostCity",         PostCitySetup),
             new LoadStep("InitSpeech",       InitSpeech),

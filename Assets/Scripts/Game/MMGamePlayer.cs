@@ -30,7 +30,8 @@ public class MMGamePlayer : MonoBehaviour
     private MMHud hud;
     private VehicleCameraManager cameraMgr;
     private RainAudio rainAudio;
-    
+    private CPVSCuller culler;
+
     private bool inWater = false;
     private bool hitWaterHandlerCalled = false;
     private float timeInWater = 0.0f;
@@ -104,6 +105,21 @@ public class MMGamePlayer : MonoBehaviour
             rainAudio = rainRoot.AddComponent<RainAudio>();
             rainAudio.Init();
         }
+
+        // init culling
+        string cpvsPath = AssetManager.CombinePath("city", $"{game.Level.Name}.cpvs");
+        CPVS cpvs = null;
+
+        if (AssetManager.Exists(cpvsPath))
+        {
+            using (var stream = AssetManager.Open(cpvsPath))
+            {
+                cpvs = new CPVS(stream);
+            }
+        }
+
+        culler = this.gameObject.AddComponent<CPVSCuller>();
+        culler.Init(game.Level, cpvs);
     }
 
     public void Reset()
@@ -170,14 +186,11 @@ public class MMGamePlayer : MonoBehaviour
             }
         }
 
-        // cull test
-        if (game != null && game.Level != null)
-        {
-            game.Level.Culler.UpdateCameraPosition(ViewportManager.MainViewport.ActiveCamera.transform.position);
-        }
+        // culling
+        culler.UpdateCameraPosition(ViewportManager.MainViewport.ActiveCamera.transform.position);
 
         // water
-        if(car.Splash != null)
+        if (car.Splash != null)
         {
             if(car.Splash.enabled)
             {
