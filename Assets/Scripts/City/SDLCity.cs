@@ -85,20 +85,6 @@ public class SDLCity : MonoBehaviour
         return rooms[id - 1];
     }
 
-    public bool PointInRoom(Vector2 location, Room room)
-    {
-        int i, j = 0;
-        bool c = false;
-        for (i = 0, j = room.Perimeter.Count - 1; i < room.Perimeter.Count; j = i++)
-        {
-            if (((room.Perimeter[i].Vertex.z > location.y) != (room.Perimeter[j].Vertex.z > location.y)) &&
-             (-location.x < (room.Perimeter[j].Vertex.x - room.Perimeter[i].Vertex.x) *
-             (location.y - room.Perimeter[i].Vertex.z) / (room.Perimeter[j].Vertex.z - room.Perimeter[i].Vertex.z) + room.Perimeter[i].Vertex.x))
-                c = !c;
-        }
-        return c;
-    }
-
     public int FindRoomId(Vector2 location)
     {
         return FindRoomId(location, RoomFlags.All);
@@ -132,7 +118,7 @@ public class SDLCity : MonoBehaviour
                 continue;
 
             //slow perimeter check
-            if (PointInRoom(location, room.SDLRoom))
+            if (room.SDLRoom.PointInRoom(-location.x, location.y))
                 return room;
         }
 
@@ -171,57 +157,92 @@ public class SDLCity : MonoBehaviour
         return FindRoomIdWithWarps(location, rooms[baseRoom - 1], flagsMask);
     }
 
+    // floors within this are "the same level" and get decided by fit instead of height
+    private const float SameFloorEpsilon = 1.0f;
+
+    // how far toward the room's own edge the point sits: 0 at center, ~1 at the bounds edge.
+    // normalized so a small room you're squarely inside beats a large room you clip a corner of,
+    // and so an elongated road room isn't penalised just for having a distant center.
+    private static float CenterOffset(Bounds bounds, Vector3 location)
+    {
+        float ex = Mathf.Max(bounds.extents.x, 0.001f);
+        float ez = Mathf.Max(bounds.extents.z, 0.001f);
+        float dx = (location.x - bounds.center.x) / ex;
+        float dz = (location.z - bounds.center.z) / ez;
+        return dx * dx + dz * dz;   // squared, comparison only
+    }
+
     public int FindRoomIdWithWarps(Vector3 location, RoomInfo baseRoom, RoomFlags flagsMask)
     {
         if (baseRoom == null)
             return 0;
 
-        if (baseRoom.WarpRooms.Count == 0)
+        var warps = baseRoom.WarpRooms;
+        int warpCount = warps.Count;
+        if (warpCount == 0)
             return baseRoom.Id;
 
-        //we have warps, lets find what one we want
+        // Nearest floor at or below wins outright. Containment and centre offset only
+        // break ties between rooms on the same level.
+        int bestId = 0;
+        float bestDrop = 0f, bestOffset = 0f;
+        bool bestContained = false;
 
-        //lowest warp is a fallback, in case we fall below all warps
-        float lowestWarp = float.MaxValue;
-        int lowestWarpId = 0;
+        int aboveId = 0; float aboveRise = 0f, aboveOffset = 0f;   // nothing below us
 
-        //otherwise, closest probability is ideal
-        int warpId = baseRoom.Id;
-        float closestProbability = Mathf.Abs(location.y - baseRoom.Bounds.min.y);
-
-        var location2d = location.ToVec2XZ();
-        foreach (var warpRoom in baseRoom.WarpRooms)
+        for (int i = -1; i < warpCount; i++)
         {
-            if ((warpRoom.Flags & flagsMask) == 0)
-                continue;
-            if (!PointInRoom(location2d, warpRoom.SDLRoom))
+            var room = i < 0 ? baseRoom : warps[i];
+            var bounds = room.Bounds;
+
+            if (flagsMask != RoomFlags.All && (room.Flags & flagsMask) == 0)
                 continue;
 
-            if (warpRoom.Bounds.min.y < lowestWarp)
+            if (location.x < bounds.min.x || location.x > bounds.max.x ||
+                location.z < bounds.min.z || location.z > bounds.max.z)
+                continue;
+
+            if (i >= 0 && !room.SDLRoom.PointInRoom(-location.x, location.z))
+                continue;
+
+            float offset = CenterOffset(bounds, location);
+            float gap = location.y - bounds.min.y;
+
+            if (gap < 0.0f)
             {
-                lowestWarp = warpRoom.Bounds.min.y;
-                lowestWarpId = warpRoom.Id;
+                float rise = -gap;
+                if (aboveId == 0 || rise < aboveRise - SameFloorEpsilon ||
+                    (rise < aboveRise + SameFloorEpsilon && offset < aboveOffset))
+                {
+                    aboveId = room.Id; aboveOffset = offset;
+                    if (aboveId == room.Id && rise < aboveRise || aboveRise == 0f) aboveRise = rise;
+                }
+                continue;
             }
 
-            if (warpRoom.Bounds.min.y > location.y)
-                continue;
+            if (gap < 0f) gap = 0f;
 
-            float probability = Mathf.Abs(location.y - warpRoom.Bounds.min.y);
-            if (probability < closestProbability)
+            bool contained = location.y <= bounds.max.y;
+
+            if (bestId == 0 || gap < bestDrop - SameFloorEpsilon)
             {
-                closestProbability = probability;
-                warpId = warpRoom.Id;
+                bestId = room.Id; bestDrop = gap; bestOffset = offset; bestContained = contained;
+            }
+            else if (gap < bestDrop + SameFloorEpsilon)
+            {
+                // same level: prefer a room we're actually inside, then the tightest fit
+                if ((contained && !bestContained) ||
+                    (contained == bestContained && offset < bestOffset))
+                {
+                    bestId = room.Id; bestOffset = offset; bestContained = contained;
+                }
+                if (gap < bestDrop) bestDrop = gap;
             }
         }
 
-        //below everything?
-        if (baseRoom.Bounds.min.y < lowestWarp)
-            lowestWarpId = baseRoom.Id;
-
-        if (location.y < lowestWarp)
-            return lowestWarpId;
-
-        return warpId;
+        if (bestId != 0) return bestId;
+        if (aboveId != 0) return aboveId;
+        return baseRoom.Id;
     }
 
     public int FindRoomIdWithWarpsCheckMiss(Vector3 location, RoomInfo baseRoom)
@@ -231,8 +252,7 @@ public class SDLCity : MonoBehaviour
 
     public int FindRoomIdWithWarpsCheckMiss(Vector3 location, RoomInfo baseRoom, RoomFlags flagsMask)
     {
-        var location2d = location.ToVec2XZ();
-        if (baseRoom == null || !PointInRoom(location2d, baseRoom.SDLRoom))
+        if (baseRoom == null || !baseRoom.SDLRoom.PointInRoom(-location.x, location.z))
             return FindRoomIdWithWarps(location, flagsMask);
         return FindRoomIdWithWarps(location, baseRoom, flagsMask);
     }
@@ -244,10 +264,30 @@ public class SDLCity : MonoBehaviour
 
     public int FindRoomIdWithWarpsCheckMiss(Vector3 location, int baseRoom, RoomFlags flagsMask)
     {
-        var location2d = location.ToVec2XZ();
-        if (baseRoom <= 0|| !PointInRoom(location2d, rooms[baseRoom-1].SDLRoom))
-            return FindRoomIdWithWarps(location, flagsMask);
-        return FindRoomIdWithWarps(location, rooms[baseRoom-1], flagsMask);
+        if(baseRoom > 0)
+        {
+            // check base room first
+            var roomInfo = rooms[baseRoom - 1];
+            if(roomInfo.SDLRoom.PointInRoom(-location.x, location.z))
+            {
+                return FindRoomIdWithWarps(location, roomInfo, flagsMask);
+            }
+            else
+            {
+                // check neighbors
+                foreach(var neighborRoom in roomInfo.NeighboringRooms)
+                {
+                    if(neighborRoom.SDLRoom.PointInRoom(-location.x, location.z))
+                    {
+                        return FindRoomIdWithWarps(location, neighborRoom, flagsMask);
+                    }
+                }
+
+                // if we didn't find anything by now, full re-probe
+                return FindRoomIdWithWarps(location, flagsMask);
+            }
+        }
+        return FindRoomIdWithWarps(location, flagsMask);
     }
 
     // Room data build
@@ -268,27 +308,45 @@ public class SDLCity : MonoBehaviour
             max = Vector3.Max(worldPoint, max);
         }
 
-        foreach (var element in room.Elements)
+        for (int i = 0; i < room.Elements.Count; i++)
         {
-            float height;
+            var element = room.Elements[i];
+            float? height = null;
             switch (element.Type)
             {
-                case ElementType.RoofTriangleFan: height = ((RoofTriangleFanElement)element).Height; break;
-                case ElementType.Tunnel: height = ((TunnelElement)element).Height; break;
-                case ElementType.FacadeBound: height = ((FacadeBoundElement)element).Height; break;
-                case ElementType.Facade: height = ((FacadeElement)element).TopHeight; break;
-                default: continue;
+                case ElementType.RoofTriangleFan:
+                    height = ((RoofTriangleFanElement)element).Height;
+                    break;
+                case ElementType.Tunnel:
+                    {
+                        float maxHeightAbovePP = ((TunnelElement)element).Height;
+                        foreach (var pp in room.Perimeter)
+                        {
+                            float candidate = pp.Vertex.y + maxHeightAbovePP;
+                            height = height.HasValue ? Mathf.Max(candidate, height.Value) : candidate;
+                        }
+                        break;
+                    }
+                case ElementType.FacadeBound:
+                    height = ((FacadeBoundElement)element).Height;
+                    break;
+                case ElementType.Facade:
+                    height = ((FacadeElement)element).TopHeight;
+                    break;
+                default:
+                    continue;
             }
 
-            if (float.IsNaN(height) || float.IsInfinity(height))
+            if (!height.HasValue || float.IsNaN(height.Value) || float.IsInfinity(height.Value))
                 continue;
 
-            max.y = Mathf.Max(max.y, height);
+            max.y = Mathf.Max(max.y, height.Value);
         }
 
-        // inflate slightly so things don't report wrong room just by being 1mm below
+        // inflate slightly so things don't report wrong room just by being 1mm below/above
+        // inflate slightly more above for underground tunnels that would otherwise report the surrounding room
         min.y -= 1.0f;
-        max.y += 1.0f;
+        max.y += 3.0f;
 
         bounds = new Bounds();
         bounds.SetMinMax(min, max);
@@ -349,6 +407,80 @@ public class SDLCity : MonoBehaviour
         }
     }
 
+    private static Vector2 PerimeterPointXZ(Room room, int i)
+    {
+        var v = room.Perimeter[i].Vertex;
+        return new Vector2(-v.x, v.z);
+    }
+
+    private static Vector2 PerimeterCentroid(Room room)
+    {
+        var sum = Vector2.zero;
+        for (int i = 0; i < room.Perimeter.Count; i++)
+            sum += PerimeterPointXZ(room, i);
+        return sum / room.Perimeter.Count;
+    }
+
+    private static bool SegmentsCross(Vector2 p1, Vector2 p2, Vector2 p3, Vector2 p4)
+    {
+        float d = (p2.x - p1.x) * (p4.y - p3.y) - (p2.y - p1.y) * (p4.x - p3.x);
+        if (Mathf.Abs(d) < 1e-6f)
+            return false; // parallel or degenerate
+
+        float u = ((p3.x - p1.x) * (p4.y - p3.y) - (p3.y - p1.y) * (p4.x - p3.x)) / d;
+        float v = ((p3.x - p1.x) * (p2.y - p1.y) - (p3.y - p1.y) * (p2.x - p1.x)) / d;
+
+        // strict, so merely touching at an endpoint doesn't count
+        return u > 1e-4f && u < 1f - 1e-4f && v > 1e-4f && v < 1f - 1e-4f;
+    }
+
+    private static bool PerimetersOverlap(Room a, Room b)
+    {
+        if (a?.Perimeter == null || b?.Perimeter == null)
+            return false;
+        if (a.Perimeter.Count < 3 || b.Perimeter.Count < 3)
+            return false;
+
+        // vertices of one inside the other, nudged inward so a shared edge doesn't count
+        if (AnyVertexInside(a, b) || AnyVertexInside(b, a))
+            return true;
+
+        // crossing strips: a bridge over a road has no vertex inside either polygon
+        int ca = a.Perimeter.Count, cb = b.Perimeter.Count;
+        for (int i = 0; i < ca; i++)
+        {
+            var a1 = PerimeterPointXZ(a, i);
+            var a2 = PerimeterPointXZ(a, (i + 1) % ca);
+
+            for (int j = 0; j < cb; j++)
+            {
+                var b1 = PerimeterPointXZ(b, j);
+                var b2 = PerimeterPointXZ(b, (j + 1) % cb);
+
+                if (SegmentsCross(a1, a2, b1, b2))
+                    return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool AnyVertexInside(Room inner, Room outer)
+    {
+        const float inset = 0.05f;
+
+        var centroid = PerimeterCentroid(inner);
+        for (int i = 0; i < inner.Perimeter.Count; i++)
+        {
+            // pull toward the centroid so vertices shared with an adjacent room
+            // don't land exactly on the boundary, where the crossing test is undefined
+            var p = Vector2.MoveTowards(PerimeterPointXZ(inner, i), centroid, inset);
+            if (outer.PointInRoom(-p.x, p.y))
+                return true;
+        }
+        return false;
+    }
+
     private void BuildWarpRooms()
     {
         const float overlapEpsilon = 0.01f;
@@ -359,21 +491,45 @@ public class SDLCity : MonoBehaviour
             for (int i = 0; i < items.Count; i++)
             {
                 var a = items[i];
-                for (int j = i + 1; j < items.Count; j++)
+                if (!a.Flags.HasFlag(RoomFlags.Warp))
                 {
+                    // don't compute warps for this room, it's not flagged for them
+                    continue;
+                }
+
+                for (int j = 0; j < items.Count; j++)
+                {
+                    if (j == i) 
+                        continue;
+
                     var b = items[j];
                     if (a.WarpRooms.Contains(b))
                         continue;
 
+                    // cheap AABB prefilter
                     float overlapX = Mathf.Min(a.Bounds.max.x, b.Bounds.max.x) - Mathf.Max(a.Bounds.min.x, b.Bounds.min.x);
                     float overlapZ = Mathf.Min(a.Bounds.max.z, b.Bounds.max.z) - Mathf.Max(a.Bounds.min.z, b.Bounds.min.z);
                     if (overlapX <= overlapEpsilon || overlapZ <= overlapEpsilon)
+                        continue;
+
+                    // real footprint test
+                    if (!PerimetersOverlap(a.SDLRoom, b.SDLRoom))
                         continue;
 
                     a.WarpRooms.Add(b);
                     b.WarpRooms.Add(a);
                 }
             }
+        }
+
+        // order by 'floor' so the lookup can walk bands bottom-up
+        foreach (var room in rooms)
+        {
+            room.WarpRooms.Sort((a, b) =>
+            {
+                int c = a.Bounds.min.y.CompareTo(b.Bounds.min.y);
+                return c != 0 ? c : a.Id.CompareTo(b.Id);   // stable for coplanar rooms
+            });
         }
     }
 
@@ -805,8 +961,8 @@ public class SDLCity : MonoBehaviour
                 for (int i = 0; i < Rooms.Count; i++)
                 {
                     var roomInfo = rooms[i];
-                    float roomLevel = roomInfo.Bounds.center.y;
-                    if (roomLevel > waterLevel)
+                    var bounds = roomInfo.Bounds;
+                    if (bounds.min.y > waterLevel || bounds.max.y < waterLevel)
                         continue;
 
                     // get all level colliders in this room and delete their water
@@ -847,15 +1003,11 @@ public class SDLCity : MonoBehaviour
                         var levelCollider = child.gameObject.GetComponent<MMBound>();
                         if (levelCollider != null && levelCollider.HasPhysicsMaterial(deepWaterMaterial))
                         {
-                            roomInfo.IsWaterRoom = true;
                             levelCollider.DeletePolysWithMaterial(deepWaterMaterial);
                         }
                     }
 
-                    if (roomInfo.IsWaterRoom)
-                    {
-                        Debug.Log($"Room {i} has water of death (INST)");
-                    }
+                    Debug.Log($"Room {i} has water of death (INST)");
                 }
             }
         }
