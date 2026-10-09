@@ -53,7 +53,7 @@ public class HermiteCurve
 
     public Vector3 GetPositionAt(float t)
     {
-        if (t < 0.01f)
+        if (t <= 0f)
             return Points[0].Position;
         if (t >= 1f)
             return Points[Points.Count - 1].Position;
