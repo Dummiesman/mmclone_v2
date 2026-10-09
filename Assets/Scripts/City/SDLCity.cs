@@ -658,8 +658,6 @@ public class SDLCity : MonoBehaviour
         foreach (var instance in instances.Instances)
         {
             if (instance.RoomIndex == 0) continue;
-            if (instance.Flags.HasFlag(InstanceFlags.Banger)) continue;
-
             // whoa, we can build this
             GameObject built  = new GameObject($"{instance.Name}");
             if (instance.Flags.HasFlag(InstanceFlags.Banger))
