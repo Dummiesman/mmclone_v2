@@ -293,12 +293,18 @@ public class VehicleForm : MonoBehaviour
         this.basename = basename;
         using (var stream = AssetManager.Open("geometry", $"{basename}.pkg"))
         {
+            if(stream == null)
+            {
+                Debug.LogError($"VehicleForm: No geometry for {basename}");
+                return;
+            }
+
             var packageFile = new PackageFile(stream);
             bodyMesh = LoadMesh(packageFile, "BODY_H");
             shadowMesh = LoadMesh(packageFile, "SHADOW_H");
 
 
-            while (packageFile.CurrentFileName != "WHL0_H")
+            while (!packageFile.CurrentFileName.Equals("WHL0_H", System.StringComparison.OrdinalIgnoreCase) && !packageFile.EOF)
             {
                 string fileName = packageFile.CurrentFileName;
                 if (fileName.EndsWith("_H", System.StringComparison.OrdinalIgnoreCase))
@@ -334,7 +340,7 @@ public class VehicleForm : MonoBehaviour
             whl2Mesh = LoadMesh(packageFile, "WHL2_H");
             whl3Mesh = LoadMesh(packageFile, "WHL3_H");
 
-            while (packageFile.CurrentFileName != "shaders")
+            while (packageFile.CurrentFileName != "shaders" && !packageFile.EOF)
             {
                 string fileName = packageFile.CurrentFileName;
                 if (fileName.EndsWith("_H", System.StringComparison.OrdinalIgnoreCase))

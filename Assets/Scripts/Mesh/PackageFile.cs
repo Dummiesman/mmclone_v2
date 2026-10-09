@@ -10,6 +10,7 @@ public class PackageFile : IDisposable
     private const uint MagicFILE = 0x454C4946; // 'FILE'
 
     public string CurrentFileName => currentFileName;
+    public bool EOF => (CurrentFileName == "[[[ EOF ]]]");
 
     private string currentFileName = string.Empty;
     private int currentFileSize = 0;
