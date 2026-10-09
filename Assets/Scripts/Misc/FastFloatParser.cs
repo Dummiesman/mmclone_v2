@@ -45,7 +45,7 @@
 
         int pos = 0;
         int whole = 0;
-        int extraExp = 0;          // integer digits we couldn't fit in `whole`
+        int extraExp = 0;
         int exp = 0;
         float fractional = 0f;
         bool expIsNegative = false;
@@ -68,7 +68,7 @@
             if (whole <= wholeSafeLimit)
                 whole = (whole * 10) + (c - '0');
             else
-                extraExp++;        // overflow guard: keep magnitude, drop precision
+                extraExp++;
         }
 
         // ---- fractional part ----
@@ -83,33 +83,43 @@
                 pos++;
                 hasDigits = true;
                 fractional += (c - '0') * dec;
-                dec *= 0.1f;       // safely flushes to 0 on long inputs
+                dec *= 0.1f;
             }
         }
 
+        // no digits anywhere => genuinely not a number
         if (!hasDigits) return float.NaN;
 
-        // ---- exponent part ----
-        if (pos < len)
+        // ---- exponent part (optional, backtracks if malformed) ----
+        if (pos < len && (s[begin + pos] == 'e' || s[begin + pos] == 'E'))
         {
-            c = s[begin + pos];
-            if (c != 'e' && c != 'E') return float.NaN;   // trailing garbage
+            int rewind = pos;
             pos++;
-            if (pos >= len) return float.NaN;            // bare "1E"
 
-            c = s[begin + pos];
-            if (c == '-') { expIsNegative = true; pos++; }
-            else if (c == '+') { pos++; }
-            if (pos >= len) return float.NaN;            // bare "1E-"
+            bool expNeg = false;
+            if (pos < len && (s[begin + pos] == '-' || s[begin + pos] == '+'))
+            {
+                expNeg = s[begin + pos] == '-';
+                pos++;
+            }
 
+            int e = 0;
+            bool expHasDigits = false;
             while (pos < len)
             {
-                c = s[begin + pos++];
-                if (c < '0' || c > '9') return float.NaN;
-                if (exp <= expSafeLimit)
-                    exp = (exp * 10) + (c - '0');        // clamped, can't wrap
+                c = s[begin + pos];
+                if (c < '0' || c > '9') break;
+                pos++;
+                expHasDigits = true;
+                if (e <= expSafeLimit)
+                    e = (e * 10) + (c - '0');
             }
+
+            if (expHasDigits) { exp = e; expIsNegative = expNeg; }
+            else pos = rewind;   // "1e", "1e-" => the number is just "1"
         }
+
+        // anything left in [pos, len) is trailing garbage — ignored, atof-style
 
         int totalExp = (expIsNegative ? -exp : exp) + extraExp;
         float value = sign * (whole + fractional);
@@ -124,7 +134,7 @@
         }
 
         int n = -totalExp;
-        if (n >= powCacheLength) return sign * 0f;       // underflow, not -Infinity
+        if (n >= powCacheLength) return sign * 0f;
         return value * invPowCache[n];
     }
 }
