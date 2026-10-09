@@ -15,8 +15,8 @@
 
         Pass
         {
-            Lighting On // needed, otherwise unity_LightPosition[0] doesn't work
-            Offset -1, -1
+            Lighting On
+            Offset -3.5, 0
 
             CGPROGRAM
             #pragma vertex vert
@@ -67,7 +67,12 @@
                 v2f o;
                 UNITY_SETUP_INSTANCE_ID(v);
 
-                o.pos = UnityObjectToClipPos(v.vertex);
+                float bias = 0.001;
+                float3 viewPos = UnityObjectToViewPos(v.vertex);
+                viewPos.z *= (1.0 - bias); 
+                o.pos = mul(UNITY_MATRIX_P, float4(viewPos, 1.0));
+
+
                 o.uv = TRANSFORM_TEX(v.uv, _MainTex);
                 o.color = v.color;
                 o.lighting = MMLight3(float4(1.0, 1.0, 1.0, 1.0), COMPUTE_VIEW_NORMAL);
