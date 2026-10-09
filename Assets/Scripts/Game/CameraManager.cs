@@ -60,6 +60,8 @@ public class VehicleCameraManager : MonoBehaviour
         cam.transform.position = offset;
         cam.fieldOfView = fov;
         bumperCamOffset = offset;
+        bumperCamOffset.z *= -1.0f;
+        bumperCamOffset.x *= -1.0f;
 
         //
         return cam;
@@ -88,6 +90,7 @@ public class VehicleCameraManager : MonoBehaviour
         var camReader = AssetManager.OpenNode("tune", $"camera/{camFile}");
         dashCamOffset = camReader.Read("Offset", Vector3.zero).ConvertCoordinateSpace();
         dashCamOffset.z *= -1.0f;
+        dashCamOffset.x *= -1.0f;
     }
 
     private Camera InitCamera(int index, string name)

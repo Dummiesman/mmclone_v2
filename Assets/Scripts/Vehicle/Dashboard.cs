@@ -28,11 +28,11 @@ public class Dashboard : MonoBehaviour
     private const string dashShaderName = "Custom/Dashboard";
     private const float lightingAmount = 0.25f;
 
-    // Render queues, previously applied in SetGear via SetQueue.
-    private const int wheelQueue = 3150;
-    private const int needleQueue = 3050;
-    private const int gearQueue = 3100;
-    private const int extraQueue = 3200;
+    private const int baseQueue = 3010;
+    private const int needleQueue = 3020;
+    private const int gearQueue = 3030;
+    private const int extraQueue = 3040;
+    private const int wheelQueue = 3050;
 
     private const string dashName = "DASH";
     private const string roofName = "ROOF";
@@ -326,8 +326,8 @@ public class Dashboard : MonoBehaviour
 
     private void CreateObjects()
     {
-        CreateObject(dashName, GetMesh(dashName), dashPos, Vector3.zero, false, 0);
-        CreateObject(roofName, GetMesh(roofName), roofPos, Vector3.zero, false, 0);
+        CreateObject(dashName, GetMesh(dashName), dashPos, Vector3.zero, false, baseQueue);
+        CreateObject(roofName, GetMesh(roofName), roofPos, Vector3.zero, false, baseQueue);
 
         steeringWheel = CreateObject(wheelName, GetMesh(wheelName),
             wheelPos + dashPos, wheelPivotOffset, true, wheelQueue)?.transform;
@@ -347,7 +347,7 @@ public class Dashboard : MonoBehaviour
         foreach (var name in meshOrder)
         {
             if (IsHandled(name)) continue;
-            CreateObject(name, meshes[name], Vector3.zero, Vector3.zero, false, 0);
+            CreateObject(name, meshes[name], Vector3.zero, Vector3.zero, false, baseQueue);
         }
 
         // Gear variants (only the one matching Variant stays active).
@@ -491,6 +491,7 @@ public class Dashboard : MonoBehaviour
 
         var camReader = AssetManager.OpenNode("tune", $"camera/{camFile}");
         camOffset = camReader.Read("Offset", Vector3.zero).ConvertCoordinateSpace();
+        camOffset.x = -camOffset.x;
         camOffset.z = -camOffset.z;
     }
 
