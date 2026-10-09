@@ -24,7 +24,6 @@ public class SDLCity : MonoBehaviour
     public CityTextureVariants TextureVariantSettings => textureVariantSettings;
     public CityLighting Lighting => lighting;
     public BangerDataManager BangerDataManager => bangerDataManager;
-    public CPVSCuller Culler => culler;
     public IReadOnlyList<BridgeSet> Bridges;
 
 
@@ -39,7 +38,6 @@ public class SDLCity : MonoBehaviour
     
     private PSDLFile sdl;
     private MaterialMap materials;
-    private CPVSCuller culler;
     private BangerDataManager bangerDataManager;
 
     private AmbientAudio ambientAudio;
@@ -786,22 +784,6 @@ public class SDLCity : MonoBehaviour
         // load material mappings
         materials = new MaterialMap();
         materials.LoadMappings();
-    }
-
-    public void InitCulling()
-    {
-        string cpvsPath = AssetManager.CombinePath("city", $"{name}.cpvs");
-        CPVS cpvs = null;
-
-        if (AssetManager.Exists(cpvsPath))
-        {
-            using (var stream = AssetManager.Open(cpvsPath))
-            {
-                cpvs = new CPVS(stream);
-            }
-        }
-
-        culler = new CPVSCuller(this, cpvs);
     }
 
     public void InitWaterOfDeath()
