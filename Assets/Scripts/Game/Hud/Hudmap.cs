@@ -3,14 +3,17 @@ using UnityEngine;
 
 public class Hudmap : MonoBehaviour
 {
-    //const
+    // const
     private const float ITEM_SCALE = 3f;
     private const ScreenSide DEFAULT_SCREEN_SIDE = ScreenSide.Right;
 
-    //normal (small) map placement, as anchored to the right edge
+    // normal (small) map placement, as anchored to the right edge
     private static readonly Rect normalRectRight = new Rect(0.7794f, 0.0131f, 0.2022f, 0.2369f);
 
-    //private stuff
+    // private stuff
+    // private bool IsMobileLayout => Application.isMobilePlatform || Application.isEditor;
+    private bool IsMobileLayout => false; // WiP
+
     private FollowTarget TargetFollower;
     private bool followTargetRotation = false;
     private Camera mapCamera;
@@ -46,10 +49,10 @@ public class Hudmap : MonoBehaviour
         Right = 1
     }
 
-    //API
-    /// <summary>
-    /// Instantly apply the zoom level to the camera, skipping the animation
-    /// </summary>
+    // API
+    // / <summary>
+    // / Instantly apply the zoom level to the camera, skipping the animation
+    // / </summary>
     public void ApplyZoomLevel()
     {
         mapCamera.orthographicSize = Mathf.Lerp(zoomOutDist, zoomInDist, targetZoomLevel);
@@ -69,9 +72,9 @@ public class Hudmap : MonoBehaviour
     public void SetFollowRotation(bool rotate)
     {
         followRotation = rotate;
-        TargetFollower.RotationAxes.y = false; // FollowTarget no longer handles rotation
+        TargetFollower.RotationAxes.y = false; //  FollowTarget no longer handles rotation
         if (!rotate)
-            mapCamera.transform.localEulerAngles = new Vector3(90, 0, 180); // reset to north-fixed
+            mapCamera.transform.localEulerAngles = new Vector3(90, 0, 180); //  reset to north-fixed
     }
 
     public void ToggleFollowRotation()
@@ -79,18 +82,19 @@ public class Hudmap : MonoBehaviour
         SetFollowRotation(!followRotation);
     }
 
-    /// <summary>
-    /// Which edge the small (Normal) map is anchored to. Ignored in Half/Off.
-    /// </summary>
+    // / <summary>
+    // / Which edge the small (Normal) map is anchored to. Ignored in Half/Off.
+    // / </summary>
     public void SetScreenSide(ScreenSide side)
     {
-        if (curScreenSide == side)
+        // ignored on mobile - the map is pinned top-left
+        if (IsMobileLayout || curScreenSide == side)
             return;
 
         curScreenSide = side;
 
-        //only the small map is edge-anchored; Half/Off are full width.
-        //while fullscreen the viewports are swapped, so the new side is picked up on restore.
+        // only the small map is edge-anchored; Half/Off are full width.
+        // while fullscreen the viewports are swapped, so the new side is picked up on restore.
         if (curMapState == MapState.Normal && !isFullscreen)
             SetState(MapState.Normal);
     }
@@ -102,14 +106,17 @@ public class Hudmap : MonoBehaviour
 
     private Rect GetNormalRect()
     {
-        if (curScreenSide == ScreenSide.Right)
-            return normalRectRight;
+        var r = normalRectRight;
 
-        //mirror horizontally, preserving the edge margin
-        return new Rect(1f - (normalRectRight.x + normalRectRight.width),
-                        normalRectRight.y,
-                        normalRectRight.width,
-                        normalRectRight.height);
+        // mobile is always top-left; the screen side setting doesn't apply
+        if (IsMobileLayout)
+            return new Rect(1f - (r.x + r.width), 1f - (r.y + r.height), r.width, r.height);
+
+        if (curScreenSide == ScreenSide.Right)
+            return r;
+
+        // mirror horizontally, preserving the edge margin
+        return new Rect(1f - (r.x + r.width), r.y, r.width, r.height);
     }
 
     public void SetState(MapState state)
@@ -148,7 +155,7 @@ public class Hudmap : MonoBehaviour
 
         if (!isFullscreen)
         {
-            // Establish the normal layout first so the swap is predictable.
+            //  Establish the normal layout first so the swap is predictable.
             SetState(MapState.Normal);
 
             mainVp.SwapDisplayArea(hudVp);
@@ -156,11 +163,11 @@ public class Hudmap : MonoBehaviour
         }
         else
         {
-            // Swap them back.
+            //  Swap them back.
             mainVp.SwapDisplayArea(hudVp);
             isFullscreen = false;
 
-            // Restore the actual map state.
+            //  Restore the actual map state.
             SetState(curMapState);
         }
     }
@@ -202,22 +209,22 @@ public class Hudmap : MonoBehaviour
         }
     }
 
-    // Use this for initialization
+    //  Use this for initialization
     public void Init(string cityName)
     {
-        //load up our model
+        // load up our model
         if (AssetManager.Exists("geometry", $"hudmap_{cityName}.pkg"))
         {
             mapModel = SimpleForm.Create($"hudmap_{cityName}", Shader.Find("Unlit/Texture")).gameObject;
-            mapModel.SetLayer(LayerMask.NameToLayer("Hudmap"), true); //layer
+            mapModel.SetLayer(LayerMask.NameToLayer("Hudmap"), true); // layer
 
-            //setup shaders
+            // setup shaders
             InitShaders();
         }
 
         var hudViewport = ViewportManager.GetViewport("HUDMAP");
 
-        // hardcoded hack from original gmae
+        //  hardcoded hack from original gmae
         if (GameState.SelectedCity.ToLowerInvariant() == "london")
         {
             hudViewport.ClearColor = new Color(0.92f, 0.83f, 0.778f);
@@ -255,17 +262,17 @@ public class Hudmap : MonoBehaviour
 
     public T AddItem<T>() where T : HudmapItem
     {
-        //create parent
+        // create parent
         GameObject compParent = new GameObject($"HudmapItem{typeof(T).Name}");
         compParent.transform.parent = this.gameObject.transform;
 
-        //add item component
+        // add item component
         var hudmapItem = compParent.AddComponent<T>();
 
-        //set scale
+        // set scale
         hudmapItem.BaseScale *= ITEM_SCALE;
 
-        //add to list and return
+        // add to list and return
         items.Add(hudmapItem);
         return hudmapItem;
     }
@@ -304,7 +311,7 @@ public class Hudmap : MonoBehaviour
 
     void Update()
     {
-        //update zoom
+        // update zoom
         float currentZoomLevel = zoomLevel;
         float zoomDiscrepancy = Mathf.Abs(currentZoomLevel - targetZoomLevel);
 
@@ -312,7 +319,7 @@ public class Hudmap : MonoBehaviour
         {
             zoomLevel = Mathf.MoveTowards(currentZoomLevel, targetZoomLevel, zoomRate * Time.unscaledDeltaTime);
 
-            //scale main camera
+            // scale main camera
             mapCamera.orthographicSize = Mathf.Lerp(zoomOutDist, zoomInDist, zoomLevel);
         }
     }
@@ -322,13 +329,13 @@ public class Hudmap : MonoBehaviour
         if (!followRotation || TargetFollower.Target == null)
             return;
 
-        // Player's heading flattened onto the ground plane
+        //  Player's heading flattened onto the ground plane
         Vector3 fwd = TargetFollower.Target.forward;
         fwd.y = 0f;
         if (fwd.sqrMagnitude < 0.0001f)
             return;
 
-        // Look straight down, with the player's heading as "up" on screen
+        //  Look straight down, with the player's heading as "up" on screen
         mapCamera.transform.rotation = Quaternion.LookRotation(Vector3.down, fwd.normalized);
     }
 

@@ -15,6 +15,10 @@ public class MMDigiTach : MonoBehaviour
     [Tooltip("Normalized point the UI scales around (0,0 = top left, 1,1 = bottom right).")]
     public Vector2 Pivot = new Vector2(0f, 1f); // bottom-left, where the tach lives
 
+    [Tooltip("Normalized offset of the whole UI in screen space. (0,0) leaves it where it is; " +
+             "x = fraction of screen width (+ right), y = fraction of screen height (+ down).")]
+    public Vector2 ScreenLocation = new Vector2(0.0f, 0.0f);
+
     // textures
     private readonly Texture2D[] numberImages = new Texture2D[10];
     private readonly Texture2D[] gearImages = new Texture2D[13];
@@ -51,7 +55,7 @@ public class MMDigiTach : MonoBehaviour
 
         for (int i = 0; i < 9; i++)
             gearImages[i] = TextureLoader.LoadNoPostprocess($"DIGITAC_GEAR_{i}");
-        gearImages[9] =  TextureLoader.LoadNoPostprocess("DIGITAC_GEAR_D");
+        gearImages[9] = TextureLoader.LoadNoPostprocess("DIGITAC_GEAR_D");
         gearImages[10] = TextureLoader.LoadNoPostprocess("DIGITAC_GEAR_N");
         gearImages[11] = TextureLoader.LoadNoPostprocess("DIGITAC_GEAR_P");
         gearImages[12] = TextureLoader.LoadNoPostprocess("DIGITAC_GEAR_R");
@@ -135,7 +139,7 @@ public class MMDigiTach : MonoBehaviour
 
     /// <summary>
     /// Converts a normalized rect (0,0 top-left, 1,1 bottom-right) to screen pixels,
-    /// applying Scale around Pivot.
+    /// applying Scale around Pivot, then offsetting by ScreenLocation.
     /// </summary>
     private Rect ToScreen(Rect n)
     {
@@ -146,6 +150,10 @@ public class MMDigiTach : MonoBehaviour
         // Pin to the left edge, and to the bottom if the screen is narrower than 4:3
         float boxX = 0f;
         float boxY = Screen.height - boxH;
+
+        // User-authored offset, in fractions of the screen
+        boxX += ScreenLocation.x * Screen.width;
+        boxY += ScreenLocation.y * Screen.height;
 
         float x = Pivot.x + (n.x - Pivot.x) * Scale;
         float y = Pivot.y + (n.y - Pivot.y) * Scale;
