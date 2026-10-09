@@ -4,8 +4,13 @@ namespace MM2.AI
 {
     public abstract class AIRailEntity : AIEntity
     {
+        // debug stats
+        public static int UncachedProbeCount = 0;
+        public static int CheapOrientCount = 0;
+        public static int OrientSkipCount = 0;
+        // end debug stats
+
         private const float SlowDownBufferMeters = 3f;
-        private const bool UseLazyOrient = true;
 
         public override int RoomID => roomId;
         public override Vector3 Position => position;
@@ -31,12 +36,16 @@ namespace MM2.AI
         protected bool committedToIntersection = false;
 
         // raycast stuff
+        private const float ProbeUpOffset = 10f;
+        private const float ProbeLength = 15f;
+
         private bool lastOrientWasSingleProbe = false;
-        private int lastOrientFrame = -1;
-        private bool orientedThisFrame => Time.frameCount == lastOrientFrame;
         protected bool[] OrientRaycastResults { get; private set; } = { false, false, false };
         protected RaycastHit[] OrientRaycastHits { get; private set; } = new RaycastHit[3];
-        protected CachedRaycastPoly CachedRaycastPoly = new CachedRaycastPoly();
+        private readonly int groundMask;
+
+        // current rail
+        private HermiteEvaluator railEvaluator;
 
         // curve computing
         private const int CurveLengthSamples = 16;
@@ -53,8 +62,60 @@ namespace MM2.AI
         private readonly float[] curveSampleCurvature = new float[CurveLengthSamples + 1]; // signed, + = right
         protected bool curveHasBend = false;
 
+        public float IntersectionTurnAngle => intersectionTurnAngle;
+        protected float intersectionTurnAngle = 0f;
+
         public AIRailEntity(AINetwork network) : base(network)
         {
+            groundMask = LayerMask.GetMask("Default", "BangerStatic");
+        }
+
+        private void OrientFromPath()
+        {
+            float percentage = NormalizedPathProgress;
+            var evaluated = railEvaluator.Evaluate(percentage - 0.01f);
+            var evaluatedAhead = railEvaluator.Evaluate(percentage + 0.01f);
+
+            var percentagePos = evaluated;
+            var directionVec = (evaluatedAhead - evaluated).normalized;
+
+            Vector3 forward = directionVec * Direction;
+            if (forward.sqrMagnitude > 1e-6f)
+            {
+                rotation = Quaternion.LookRotation(forward.normalized, Vector3.up);
+            }
+        }
+
+        protected void Orient()
+        {
+            var road = (RoadInfo.RoadInstance != null) ? RoadInfo.RoadInstance.Road : null;
+            if(road == null || !road.Flags.HasFlag(PathFlags.Flat))
+            {
+                // skip if player too far away
+                foreach (var proxy in network.VehicleProxies)
+                {
+                    if (proxy.IsPlayer)
+                    {
+                        float dist = (proxy.Position - this.Position).ToVec2XZ().sqrMagnitude;
+                        if (dist >= 10000.0f)
+                        {
+                            // too far away for full orient
+                            OrientFromPath();
+                            OrientSkipCount++;
+                            return;
+                        }
+                    }
+                }
+
+                // do orient
+                if(road != null) OrientFromPath();
+                ThreePointOrient();
+            }
+            else
+            {
+                OrientFromPath();
+                CheapOrientCount++;
+            }
         }
 
         protected void ComputeIntersectionCurve()
@@ -62,13 +123,14 @@ namespace MM2.AI
             intersectionCurveEvaluator = null;
             intersectionCurveLength = 0f;
             curveHasBend = false;
+            intersectionTurnAngle = 0f;
 
             if (NextRoadInfo.RoadInstance == null || RoadInfo.RoadInstance == null)
                 return;
 
             int lastSection = RoadInfo.RoadInstance.Road.NumSections - 1;
 
-            //get road end and next road start
+            // get road end and next road start
             var roadEnd = RoadInfo.RoadData.GetVertex(RailType, RoadInfo.RailIndex, lastSection);
             var roadEndDir = (roadEnd - RoadInfo.RoadData.GetVertex(RailType, RoadInfo.RailIndex, lastSection - 1)).normalized;
 
@@ -76,18 +138,22 @@ namespace MM2.AI
             var nxtRoadStart = nxtRoadData.GetVertex(RailType, NextRoadInfo.RailIndex, 0);
             var nxtRoadStartDir = (nxtRoadData.GetVertex(RailType, NextRoadInfo.RailIndex, 1) - nxtRoadStart).normalized;
 
-            //flatten direction vectors
+            // flatten direction vectors
             nxtRoadStartDir.y = 0f;
             roadEndDir.y = 0f;
 
-            //create a curve
+            //the turn we're actually about to drive, measured off the rails themselves rather than
+            //whatever left/right/ahead bucket the next road was picked from
+            intersectionTurnAngle = Vector3.SignedAngle(roadEndDir, nxtRoadStartDir, Vector3.up);            
+
+            // create a curve
             intersectionCurve.Points.Clear();
             intersectionCurve.Points.Add(new HermitePoint { Position = roadEnd, Tangent = roadEndDir * 1.05f });
             intersectionCurve.Points.Add(new HermitePoint { Position = nxtRoadStart, Tangent = nxtRoadStartDir * 1.05f });
 
             intersectionCurveEvaluator = new HermiteEvaluator(intersectionCurve.Points);
 
-            //sample the curve: length, plus curvature at every sample point
+            // sample the curve: length, plus curvature at every sample point
             float length = 0f;
             Vector3 prev = intersectionCurveEvaluator.Evaluate(0f);
             Vector3 prevDir = Vector3.zero;
@@ -157,8 +223,8 @@ namespace MM2.AI
             return curveSampleCurvature[CurveLengthSamples];
         }
 
-        /// Fastest we may go at arc position 'pos' on the curve (negative = still on the road before it),
-        /// braking comfortably for any tighter part further along. Past the apex this rises again.
+        // / Fastest we may go at arc position 'pos' on the curve (negative = still on the road before it),
+        // / braking comfortably for any tighter part further along. Past the apex this rises again.
         protected float GetCurveSpeedLimit(float pos)
         {
             if (!curveHasBend)
@@ -187,8 +253,8 @@ namespace MM2.AI
             if (nextRoad == null)
                 return false;
 
-            //if (nextRoad.AccidentOccurred) TODO
-            //return false;
+            // if (nextRoad.AccidentOccurred) TODO
+            // return false;
 
             var destIntersection = CurrentDestIntersection;
             var controlDevices = destIntersection?.ControlDevices;
@@ -244,6 +310,22 @@ namespace MM2.AI
 
         public override void SetRoad(RoadPositioningInfo newRoadInfo)
         {
+            if(newRoadInfo.RoadInstance != null)
+            {
+                var curve = newRoadInfo.RoadData.GetCurve(RailType, newRoadInfo.RailIndex);
+                if (curve != null)
+                {
+                    railEvaluator = new HermiteEvaluator(curve);
+                }
+                else
+                {
+                    railEvaluator = null;
+                }
+            }
+            else
+            {
+                railEvaluator = null;
+            }
             committedToIntersection = false;
             base.SetRoad(newRoadInfo);
         }
@@ -253,161 +335,110 @@ namespace MM2.AI
             var roadData = RoadInfo.RoadData;
             if (roadData == null)
                 return;
-
             var road = RoadInfo.RoadInstance.Road;
             if (road.NumSections < 2)
                 return;
+            
+            var evaluated = railEvaluator.Evaluate(percentage);
+            position = evaluated;
 
-            float distance = Mathf.Clamp01(percentage) * road.Length;
-            int sectionBase = 0;
-            for (int i = road.NumSections - 2; i > 0; i--)
-            {
-                if (distance >= road.GetSectionDistance(RoadInfo.SideOfRoad, i))
-                {
-                    sectionBase = i;
-                    break;
-                }
-            }
-
-            float lenBase = road.GetSectionDistance(RoadInfo.SideOfRoad, sectionBase);
-            float lenNext = road.GetSectionDistance(RoadInfo.SideOfRoad, sectionBase + 1);
-            float lerpAmount = lenNext > lenBase ? Mathf.Clamp01((distance - lenBase) / (lenNext - lenBase)) : 0f;
-
-            var vertexBase = roadData.GetVertex(this.RailType, RoadInfo.RailIndex, sectionBase);
-            var vertexNext = roadData.GetVertex(this.RailType, RoadInfo.RailIndex, sectionBase + 1);
-
-            Vector3 percentagePos = Vector3.Lerp(vertexBase, vertexNext, lerpAmount);
-            Vector3 directionVec = (vertexNext - vertexBase).normalized;
-
-
-            position = percentagePos;
-            if(UseLazyOrient)
-            {
-                rotation = Quaternion.LookRotation(directionVec * Direction, Vector3.up);
-            }
-            else if (road.Flags.HasFlag(PathFlags.Flat))
-            {
-                OnePointOrient(false);
-            }
-            else
-            {
-                ThreePointOrient(false);
-            }
+            Orient();
         }
 
+        // / <summary>
+        // / Get entity corners in world space
+        // / </summary>
         public virtual void GetCorners(out Vector3 frontLeft, out Vector3 frontRight, out Vector3 rearRight)
         {
-            frontLeft = Vector3.zero;
-            frontRight = Vector3.zero;
-            rearRight = Vector3.zero;
+            Vector3 forward = rotation * Vector3.forward;
+            Vector3 right = rotation * Vector3.right;
+
+            Vector3 front = forward * FrontBumperDistance;
+            Vector3 rear = forward * RearBumperDistance;
+            Vector3 left = right * LeftSideDistance;
+            Vector3 starboard = right * RightSideDistance;
+
+            frontLeft = position + front + left;
+            frontRight = position + front + starboard;
+            rearRight = position + rear + starboard;
         }
 
-        private void OnePointOrientFromCachedPoly()
+        private bool Probe(Vector3 point, out RaycastHit hit)
         {
-            position = new Vector3(position.x, CachedRaycastPoly.CalculateHeightForPoint(position), position.z);
+            var ray = new Ray(point + Vector3.up * ProbeUpOffset, Vector3.down);
+            return Physics.Raycast(ray, out hit, ProbeLength, groundMask);
         }
 
-        private void ThreePointOrientFromCachedPoly()
+        public void OnePointOrient()
         {
-            //orient vehicle
-            //[0] is FL
-            //[1] is FR
-            //[2] is RR
-            position = new Vector3(position.x, (OrientRaycastHits[1].point.y + OrientRaycastHits[2].point.y) / 2f, position.z);
-
-            var forwardDir = -(OrientRaycastHits[1].point - OrientRaycastHits[2].point).normalized;
-            var upDir = Vector3.Cross(forwardDir, -(OrientRaycastHits[1].point - OrientRaycastHits[0].point).normalized);
-            rotation = Quaternion.LookRotation(rotation * Vector3.forward, upDir);
-        }
-
-
-        /// <summary>
-        /// Finds the ground below this entity and places the entity above it
-        /// </summary>
-        /// <param name="allowCached">If set to <c>true</c> allow cached.</param>
-        public void OnePointOrient(bool allowCached = true)
-        {
-            //optimization, check cached
-            if (allowCached && lastOrientWasSingleProbe && CachedRaycastPoly.IsValid && CachedRaycastPoly.IsValidForPoint(position))
-            {
-                OnePointOrientFromCachedPoly();
-                return;
-            }
-
-            // last was valid room?
             if (RoomID <= 0) return;
 
-            //I hate this but whatever, allows var reuse
             lastOrientWasSingleProbe = true;
 
-            //
-            Vector3 raycastAddHeight = Vector3.up * 2f;
-            var raycastOrigin = position + raycastAddHeight;
-            Ray raycastRay = new Ray(raycastOrigin, Vector3.down);
-
-            OrientRaycastResults[0] = Physics.Raycast(raycastRay, out OrientRaycastHits[0], 10f);
+            OrientRaycastResults[0] = Probe(position, out OrientRaycastHits[0]);
+            UncachedProbeCount++;
 
             if (!OnGround)
-            {
-                //Cannot orient this entity, a raycast missed D:
-                CachedRaycastPoly.Invalidate();
                 return;
-            }
-            else
-            {
-                CachedRaycastPoly.Init(OrientRaycastHits[0]);
-            }
 
-            OnePointOrientFromCachedPoly();
-            lastOrientFrame = Time.frameCount;
+            var upDir = OrientRaycastHits[0].normal;
+            if (upDir.y < 0f)
+                upDir = -upDir;
+
+            position = new Vector3(position.x, OrientRaycastHits[0].point.y, position.z);
+
+            var forwardDir = Vector3.ProjectOnPlane(rotation * Vector3.forward, upDir);
+            if (forwardDir.sqrMagnitude < 1e-6f)
+                forwardDir = Vector3.ProjectOnPlane(rotation * Vector3.up, upDir);
+
+            rotation = Quaternion.LookRotation(forwardDir.normalized, upDir);
         }
 
-        /// <summary>
-        /// Orients the entity based on GetCorners() positions
-        /// </summary>
-        public void ThreePointOrient(bool allowCached = true)
+        public void ThreePointOrient()
         {
-            //optimization, check cached
-            if (allowCached && !lastOrientWasSingleProbe && CachedRaycastPoly.IsValid && CachedRaycastPoly.IsValidForPoint(position))
-            {
-                ThreePointOrientFromCachedPoly();
-                return;
-            }
-
-            // in a valid room?
             if (RoomID <= 0) return;
 
-            //I hate this but whatever, allows var reuse
-            lastOrientWasSingleProbe = false;
-
-            //get corners
+            // [0] is FL, [1] is FR, [2] is RR
             GetCorners(out var cornerFl, out var cornerFr, out var cornerRr);
 
-            //do raycasts
-            Vector3 raycastAddHeight = Vector3.up * 2f;
-            var raycastOriginFrontLeft = cornerFl + raycastAddHeight;
-            var raycastOriginFrontRight = cornerFr + raycastAddHeight;
-            var raycastOriginRearRight = cornerRr + raycastAddHeight;
+            lastOrientWasSingleProbe = false;
 
-            Ray raycastRayFrontLeft = new Ray(raycastOriginFrontLeft, Vector3.down);
-            Ray raycastRayFrontRight = new Ray(raycastOriginFrontRight, Vector3.down);
-            Ray raycastRayRearRight = new Ray(raycastOriginRearRight, Vector3.down);
+            OrientRaycastResults[0] = Probe(cornerFl, out OrientRaycastHits[0]);
+            OrientRaycastResults[1] = Probe(cornerFr, out OrientRaycastHits[1]);
+            OrientRaycastResults[2] = Probe(cornerRr, out OrientRaycastHits[2]);
+            UncachedProbeCount += 3;
 
-            OrientRaycastResults[0] = Physics.Raycast(raycastRayFrontLeft, out OrientRaycastHits[0], 10f);
-            OrientRaycastResults[1] = Physics.Raycast(raycastRayFrontRight, out OrientRaycastHits[1], 10f);
-            OrientRaycastResults[2] = Physics.Raycast(raycastRayRearRight, out OrientRaycastHits[2], 10f);
-
-
-            //TODO: dont generate so much garbage, fix!
-            //CachedRaycastPoly = OnGround ? new CachedRaycastPoly(OrientRaycastHits[0]) : null;
             if (!OnGround)
+                return;                                   // a probe missed, keep last pose
+
+            var pFl = OrientRaycastHits[0].point;
+            var pFr = OrientRaycastHits[1].point;
+            var pRr = OrientRaycastHits[2].point;
+
+            var groundForward = pFr - pRr;   // RR -> FR, right side: pitch
+            var groundRight = pFr - pFl;   // FL -> FR, front edge: roll
+            var upDir = Vector3.Cross(groundForward, groundRight);
+
+            if (upDir.sqrMagnitude < 1e-8f)
+                return;                                   // degenerate triangle, keep last orientation
+            upDir.Normalize();
+            if (upDir.y < 0f)
+                upDir = -upDir;                           // probes hit a back face
+
+            // sit on the plane the three contacts define, sampled under the body centre
+            if (upDir.y > 1e-4f)
             {
-                //Cannot orient this entity, a raycast missed D:
-                return;
+                var y = pFl.y - (upDir.x * (position.x - pFl.x)
+                               + upDir.z * (position.z - pFl.z)) / upDir.y;
+                position = new Vector3(position.x, y, position.z);
             }
 
-            ThreePointOrientFromCachedPoly();
-            lastOrientFrame = Time.frameCount;
+            // keep the heading the rail gave us, but tilt it into the ground plane
+            var forwardDir = Vector3.ProjectOnPlane(rotation * Vector3.forward, upDir);
+            if (forwardDir.sqrMagnitude < 1e-6f)
+                forwardDir = Vector3.ProjectOnPlane(rotation * Vector3.up, upDir);
+
+            rotation = Quaternion.LookRotation(forwardDir.normalized, upDir);
         }
 
         public void RandomizePositionAlongPath()
@@ -416,7 +447,7 @@ namespace MM2.AI
             PositionAlongPath(NormalizedPathProgress);
         }
 
-        /// Distance my front bumper can still travel before it must be stopped behind the car ahead.
+        // / Distance my front bumper can still travel before it must be stopped behind the car ahead.
         private float GetStoppingDistanceForFollowing(Lane lane)
         {
             var ahead = lane.NextAhead(NormalizedPathProgress, this);
@@ -427,7 +458,7 @@ namespace MM2.AI
             return (theirRear - myFront) - StopGapMeters;
         }
 
-        /// Distance my front bumper can still travel before the stop line at the road end.
+        // / Distance my front bumper can still travel before the stop line at the road end.
         private float GetStoppingDistanceForRoadEnd()
         {
             if (committedToIntersection) return float.PositiveInfinity;
@@ -448,14 +479,14 @@ namespace MM2.AI
             return float.PositiveInfinity;
         }
 
-        /// Distance my front bumper can travel before hitting something past the end of this road
-        /// (inside the intersection or on the next road). Only asked when the lane ahead is empty.
+        // / Distance my front bumper can travel before hitting something past the end of this road
+        // / (inside the intersection or on the next road). Only asked when the lane ahead is empty.
         protected virtual float GetStoppingDistanceBeyondRoadEnd() => float.PositiveInfinity;
 
-        /// Soft speed cap (e.g. slowing for an upcoming turn). Approached with comfortable braking, never snapped to.
+        // / Soft speed cap (e.g. slowing for an upcoming turn). Approached with comfortable braking, never snapped to.
         protected virtual float GetMaxApproachSpeed() => speedLimit;
 
-        /// Hard target is a safety limit and is snapped to; soft target is eased towards.
+        // / Hard target is a safety limit and is snapped to; soft target is eased towards.
         protected void ApplySpeed(float hardTarget, float softTarget)
         {
             float target = Mathf.Min(hardTarget, softTarget);
@@ -535,6 +566,76 @@ namespace MM2.AI
                     roomId = newRoom;
                 }
             }
+        }
+
+        public override void DrawGizmos()
+        {
+            base.DrawGizmos();
+
+            // these match what OnePointOrient/ThreePointOrient actually use (not ProbeUpOffset/ProbeLength, which are dead)
+            const float ProbeHeight = 10f;
+            const float ProbeMaxDist = 20f;
+            const float MarkerRadius = 0.15f;
+
+            bool single = lastOrientWasSingleProbe;
+            int probeCount = single ? 1 : 3;
+
+            // probe origins, same order as OrientRaycastHits: [0]=FL, [1]=FR, [2]=RR (or [0]=centre when single)
+            var probeOrigin = new Vector3[3];
+            if (single)
+                probeOrigin[0] = position;
+            else
+                GetCorners(out probeOrigin[0], out probeOrigin[1], out probeOrigin[2]);
+
+            // mode tint: cyan = one point (flat road), amber = three point
+            Color modeColor = single ? new Color(0f, 0.9f, 1f) : new Color(1f, 0.85f, 0f);
+
+            for (int i = 0; i < probeCount; i++)
+            {
+                Vector3 start = probeOrigin[i] + Vector3.up * ProbeHeight;
+                bool hit = OrientRaycastResults[i];
+
+                // the ray itself: green to the contact point, red for the full miss length
+                Gizmos.color = hit ? Color.green : Color.red;
+                Gizmos.DrawLine(start, hit ? OrientRaycastHits[i].point : start + Vector3.down * ProbeMaxDist);
+
+                if (hit)
+                {
+                    Gizmos.DrawSphere(OrientRaycastHits[i].point, MarkerRadius);
+                    Gizmos.color = new Color(0f, 1f, 0f, 0.45f);
+                    Gizmos.DrawLine(OrientRaycastHits[i].point, OrientRaycastHits[i].point + OrientRaycastHits[i].normal);
+                }
+                else
+                {
+                    // cross at the origin so a dead probe is readable even with no ground under it
+                    DrawGizmoCross(probeOrigin[i], 0.35f);
+                }
+
+                // marks which probes are in play this frame
+                Gizmos.color = modeColor;
+                Gizmos.DrawWireCube(probeOrigin[i], Vector3.one * (MarkerRadius * 2f));
+            }
+
+            // the plane three point orient actually solved from
+            if (!single && OrientRaycastResults[0] && OrientRaycastResults[1] && OrientRaycastResults[2])
+            {
+                Gizmos.color = modeColor;
+                Gizmos.DrawLine(OrientRaycastHits[0].point, OrientRaycastHits[1].point);
+                Gizmos.DrawLine(OrientRaycastHits[1].point, OrientRaycastHits[2].point);
+                Gizmos.DrawLine(OrientRaycastHits[2].point, OrientRaycastHits[0].point);
+            }
+
+            // overall validity + the up vector we ended up with
+            Gizmos.color = OnGround ? Color.green : Color.red;
+            Gizmos.DrawWireSphere(position, 0.25f);
+            Gizmos.DrawLine(position, position + rotation * Vector3.up * 1.5f);
+        }
+
+        private static void DrawGizmoCross(Vector3 p, float size)
+        {
+            Gizmos.DrawLine(p + Vector3.left * size, p + Vector3.right * size);
+            Gizmos.DrawLine(p + Vector3.forward * size, p + Vector3.back * size);
+            Gizmos.DrawLine(p + Vector3.down * size, p + Vector3.up * size);
         }
     }
 }

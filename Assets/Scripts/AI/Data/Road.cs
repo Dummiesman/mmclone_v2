@@ -82,6 +82,17 @@ namespace MM2.AI
         public Vector3[] SidewalkOuterVertices;
         public AmbientTypeFlags AiTypeFlags;
 
+        public HermiteCurve GetCurve(RailType type, int rail)
+        {
+            switch(type)
+            {
+                case RailType.Vehicle: return VehicleCurves[rail];
+                case RailType.Tram: return TramCurves[rail];
+                case RailType.Subway: return TrainCurves[rail];
+            }
+            return null;
+        }
+
         public Vector3 GetVertex(RailType type, int lane, int sectionIndex)
         {
             switch (type)

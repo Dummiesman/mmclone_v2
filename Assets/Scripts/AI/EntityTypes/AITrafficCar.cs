@@ -9,6 +9,7 @@ namespace MM2.AI
 
         // constants
         private const float SignalDistance = 30f; // start indicating this far before the road end
+        private const float SignalTurnAngle = 25f; // degrees of heading change before it counts as a turn
         private const float CableCarClearance = 0.75f;
         private const float CableCarSampleStep = 1f;
 
@@ -22,6 +23,8 @@ namespace MM2.AI
         private const float LaneChangeFrontGap = 4f;        // meters of clear space needed ahead in the target lane
         private const float LaneChangeRearGap = 4f;         // and behind
         private const float LaneChangeHeadway = 1f;         // extra meters of gap per m/s of closing speed
+        private const float LaneChangeEndMargin = 5f;       // meters still to run once the move is done
+        private float LaneChangeSlideRoom => Mathf.Max(LaneChangeMinLength, Speed * LaneChangeTime) + LaneChangeEndMargin;
 
         // physics / accidents
         public const float KnockOffImpulse = 100f;          // N*s; softer hits just bump off us (AITrafficCarBody caps contacts just above this)
@@ -118,8 +121,6 @@ namespace MM2.AI
         {
             get => vehicleData.CG.x + (vehicleData.Size.x * 0.5f);
         }
-
-        public float HalfWidth => 0.5f * (RightSideDistance - LeftSideDistance);
 
         private float lastSpeed = 0f;
 
@@ -224,7 +225,19 @@ namespace MM2.AI
             }
 
             float toRoadEnd = RoadInfo.RoadInstance.Road.Length - CurrentPathDistance;
-            TurnSignal = toRoadEnd <= SignalDistance ? NextRoadInfo.Relation : 0;
+            if (toRoadEnd > SignalDistance)
+            {
+                TurnSignal = 0;
+                return;
+            }
+
+            // Indicate on the turn we actually drive, not on NextRoadInfo.Relation: that's the
+            // left/right/ahead bucket the next road was *chosen* from, and at a 3 way the straight
+            // continuation regularly lands in the "right" bucket (anything 30 degrees or more off),
+            // or gets Relation = 1 hardcoded on a freeway ramp pick.
+            TurnSignal = Mathf.Abs(intersectionTurnAngle) < SignalTurnAngle
+                            ? 0
+                            : (intersectionTurnAngle > 0f ? 1 : -1);
         }
 
         // ---------------------------------------------------------------------------------------------
@@ -246,8 +259,8 @@ namespace MM2.AI
         {
             if (inIntersection)
                 return UpdateIntersection();
-
-            return UpdateRoad(allowLaneChanges);
+            else
+                return UpdateRoad(allowLaneChanges);
         }
 
         private bool EntityCanBeThreat(AIEntity entity)
@@ -768,8 +781,12 @@ namespace MM2.AI
             if (info.RoadInstance.GetLaneCount(info.SideOfRoad, RailType) < 2)
                 return;
 
+            float from = Mathf.Max(LaneChangeWindowStart, NormalizedPathProgress);
+            if (from >= LaneChangeWindowEnd)
+                    return; // joined this road too late to bother
+            
             wantsLaneChange = network.Random.value < LaneChangeChance;
-            laneChangeTriggerProgress = network.Random.Range(LaneChangeWindowStart, LaneChangeWindowEnd);
+            laneChangeTriggerProgress = network.Random.Range(from, LaneChangeWindowEnd);
         }
 
         /// Is there room for us in 'lane' with our front/rear at pathDistance + bumper offsets?
@@ -902,6 +919,14 @@ namespace MM2.AI
                             return;
                         }
 
+                        // The window is a fraction of the road, so a short road can leave less tarmac
+                        // than the move needs, indicating time included.
+                        if (Mathf.Max(0f, DistanceToRoadEnd) < Speed * LaneChangeSignalTime + LaneChangeSlideRoom)
+                        {
+                            wantsLaneChange = false;
+                            return;
+                        }
+
                         // Only start indicating if there's actually room; otherwise keep looking while in the window.
                         if (TryPickLaneChangeTarget(out laneChangeOffset))
                         {
@@ -921,6 +946,13 @@ namespace MM2.AI
                         var current = road.GetLaneOf(this);
                         var target = current != null ? road.GetNeighbourLane(current, laneChangeOffset) : null;
 
+                        // A second of indicating later we may have run out of road, or sped up since.
+                        if (Mathf.Max(0f, DistanceToRoadEnd) < LaneChangeSlideRoom)
+                        {
+                            ResetLaneChange();
+                            return;
+                        }
+
                         // Re-check: someone may have moved in while we were indicating.
                         if (target != null && IsLaneClearForChange(target))
                         {
@@ -936,14 +968,20 @@ namespace MM2.AI
 
                 case LaneChangeState.Changing:
                     {
-                        laneChangeProgress += travelled / laneChangeLength;
-                        if (laneChangeProgress >= 1f)
-                        {
-                            ResetLaneChange(); // base.Update already has us on the new rail, back to normal driving
-                            return;
-                        }
+                        // Tighten the move if the road is running out, so it finishes where the road
+                        // does instead of EnterIntersection zeroing the offset we had left to cover.
+                        float roadLeft = Mathf.Max(0f, DistanceToRoadEnd);
+                        if ((1f - laneChangeProgress) * laneChangeLength > roadLeft)
+                            laneChangeLength = Mathf.Max(0.01f, roadLeft / Mathf.Max(1e-4f, 1f - laneChangeProgress));
 
+                        laneChangeProgress = Mathf.Min(1f, laneChangeProgress + travelled / laneChangeLength);
+
+                        // Apply before finishing, not instead of: at t == 1 the offset is already zero,
+                        // so clearing the state leaves nothing to teleport away.
                         ApplyLaneChangeOffset(travelled);
+
+                        if (laneChangeProgress >= 1f)
+                            ResetLaneChange(); // base.Update already has us on the new rail
                         return;
                     }
             }
@@ -1068,6 +1106,7 @@ namespace MM2.AI
             if (dir.sqrMagnitude > 1e-6f)
                 rotation = Quaternion.LookRotation(dir, Vector3.up);
 
+            Orient();
             return step;
         }
 
