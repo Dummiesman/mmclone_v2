@@ -103,7 +103,14 @@ public class MMHud : MonoBehaviour
     public void Init(MMGame game, MMGamePlayer player, VehCar car)
     {
         this.player = player;
-        
+
+        // init viewports
+        var hudViewport = ViewportManager.AddViewport(
+            "HUDMAP",
+            new Rect(0.7794f, 0.0131f, 0.2022f, 0.2369f),
+            LayerMask.GetMask("Hudmap"));
+        hudViewport.DefaultDepth = 1;
+
         // init hudmap
         var mapRoot = new GameObject("Hudmap");
         mapRoot.transform.parent = this.transform;

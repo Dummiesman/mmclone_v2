@@ -242,12 +242,6 @@ public class MMGame : MonoBehaviour
 
     private void InitViewports()
     {
-        var hudViewport = ViewportManager.AddViewport(
-            "HUDMAP",
-            new Rect(0.7794f, 0.0131f, 0.2022f, 0.2369f),
-            LayerMask.GetMask("Hudmap"));
-        hudViewport.DefaultDepth = 1;
-
         ViewportManager.AddViewport(
             "MAIN",
             new Rect(0, 0, 1, 1),
