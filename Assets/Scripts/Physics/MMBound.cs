@@ -86,7 +86,7 @@ public class MMBound : BoundBase
         if(numPolys > 0)
         {
             boundReader.SkipTo(8, "tri", "quad");
-            for (int i = 0; i < numPolys; i++)
+            for (int i = 0; i < numPolys && !boundReader.EOF(); i++)
             {
                 var tokens = boundReader.ReadTokens();
                 string type = tokens[0].ToString();
@@ -254,7 +254,6 @@ public class MMBound : BoundBase
         if (stream != null)
         {
             var result = obj.AddComponent<MMBound>();
-            
             result.LoadASCII(name, stream);
             result.SetupCollider();
             return result;
